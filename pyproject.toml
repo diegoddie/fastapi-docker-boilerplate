@@ -1,0 +1,14 @@
+[project]
+name = "fastapi-crud"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.16.2",
+    "fastapi[standard]>=0.115.14",
+    "psycopg2-binary>=2.9.10",
+    "pydantic>=2.11.7",
+    "sqlalchemy>=2.0.41",
+    "uvicorn>=0.35.0",
+]
