@@ -31,19 +31,24 @@ A modern, production-ready CRUD API built with FastAPI, PostgreSQL, Docker, and 
 
 ## 📋 Prerequisites
 
+### For Docker (Recommended)
 - Docker & Docker Compose
-- Python 3.12+ (for local development)
+
+### For Local Development (Optional)
+- Python 3.12+
 - UV package manager
 
 ## 🚀 Quick Start
 
-### 1. Clone the repository
+### Option 1: Docker (Recommended)
+
+#### 1. Clone the repository
 ```bash
 git clone https://github.com/diegoddie/fastapi-docker-boilerplate.git
 cd fastapi-crud
 ```
 
-### 2. Create environment file
+#### 2. Create environment file
 Create `.env` at the project root with your configuration:
 ```env
 POSTGRES_DB=fastapi_db
@@ -52,26 +57,76 @@ POSTGRES_PASSWORD=fastapi_password
 DATABASE_URL=postgresql://fastapi_user:fastapi_password@db:5432/fastapi_db
 ```
 
-### 3. Start the application
+#### 3. Start the application
 ```bash
 docker-compose up --build
 ```
 
-### 4. Create database migrations
+#### 4. Create database migrations
 ```bash
 docker-compose exec api uv run alembic revision --autogenerate -m "Create todos table"
 ```
 
-### 5. Apply database migrations
+#### 5. Apply database migrations
 ```bash
 docker-compose exec api uv run alembic upgrade head
 ```
 
-### 6. Testing
+#### 6. Testing
 Access the interactive API documentation at:
 - http://localhost:8000/docs
 
 Use the built-in interface to test all endpoints with real data.
+
+### Option 2: Local Development
+
+#### 1. Clone the repository
+```bash
+git clone https://github.com/diegoddie/fastapi-docker-boilerplate.git
+cd fastapi-crud
+```
+
+#### 2. Install UV
+```bash
+# On macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# On Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+#### 3. Install dependencies
+```bash
+uv sync
+```
+
+#### 4. Set up local PostgreSQL
+Make sure you have PostgreSQL running locally, then create `.env`:
+```env
+POSTGRES_DB=fastapi_db
+POSTGRES_USER=your_local_user
+POSTGRES_PASSWORD=your_local_password
+DATABASE_URL=postgresql://your_local_user:your_local_password@localhost:5432/fastapi_db
+```
+
+#### 5. Create database migrations
+```bash
+uv run alembic revision --autogenerate -m "Create todos table"
+```
+
+#### 6. Apply database migrations
+```bash
+uv run alembic upgrade head
+```
+
+#### 7. Start the application
+```bash
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### 8. Testing
+Access the interactive API documentation at:
+- http://localhost:8000/docs
 
 ## 🧪 API Endpoints
 
