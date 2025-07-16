@@ -2,10 +2,6 @@
 
 A modern, production-ready CRUD API built with FastAPI, PostgreSQL, Docker, and Alembic migrations. This project demonstrates best practices for building scalable web APIs with automatic database migrations.
 
-## 🎬 YouTube Tutorial
-
-> 📺 **Watch the complete tutorial:** [I Built a Full CRUD app with FastAPI in Under 10 Minutes (with UV, Docker, Alembic)](YOUR_YOUTUBE_LINK_HERE)
-
 ## ✨ Features
 
 - 🚀 **FastAPI** - Modern, fast web framework for APIs
