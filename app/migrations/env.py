@@ -6,23 +6,17 @@ from typing import Any, Literal
 import alembic_postgresql_enum
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 from sqlmodel import SQLModel
 
+import app.core.models  # noqa: F401  # side-effect: register models and naming convention
 from app.commons.types import UTCDateTime
 from app.core.config import settings
 
-# Why: the naming convention must be set before the models are imported, so that
-# every constraint and index gets a deterministic name in the migrations.
-SQLModel.metadata.naming_convention = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s",
-}
-
-import app.core.models  # noqa: E402, F401  # side-effect: register models
+# Why: every container runs the migrations on start; when several replicas start
+# together, this Postgres advisory lock lets only one of them migrate at a time.
+MIGRATIONS_LOCK = text("SELECT pg_advisory_lock(hashtext('alembic_migrations'))")
+MIGRATIONS_UNLOCK = text("SELECT pg_advisory_unlock(hashtext('alembic_migrations'))")
 
 config = context.config
 
@@ -79,14 +73,22 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(
-            compare_type=True,
-            connection=connection,
-            render_item=render_item,
-            target_metadata=target_metadata,
-        )
-        with context.begin_transaction():
-            context.run_migrations()
+        # Why: the lock is session-level, so it survives the commit that closes
+        # this implicit transaction and lets Alembic open its own.
+        connection.execute(MIGRATIONS_LOCK)
+        connection.commit()
+        try:
+            context.configure(
+                compare_type=True,
+                connection=connection,
+                render_item=render_item,
+                target_metadata=target_metadata,
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            connection.execute(MIGRATIONS_UNLOCK)
+            connection.commit()
 
 
 if context.is_offline_mode():

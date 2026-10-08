@@ -66,3 +66,10 @@ class ServerErrorHTTPException(BaseHTTPException):
 
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
     error_code = "SERVER_ERROR"
+
+
+class ServiceUnavailableHTTPException(BaseHTTPException):
+    """Service unavailable http exception."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "SERVICE_UNAVAILABLE"

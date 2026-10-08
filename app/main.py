@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import router as api_router
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.database import session_manager
 from app.core.handlers import register_exceptions_handlers
 
@@ -28,25 +28,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await session_manager.aclose()
 
 
-app = FastAPI(
-    title="FastAPI Docker Boilerplate",
-    description="A production-ready FastAPI backend boilerplate.",
-    version="0.1.0",
-    debug=settings.DEBUG,
-    docs_url=settings.DOCS_URL,
-    openapi_url=settings.OPENAPI_URL,
-    redoc_url=None,
-    lifespan=lifespan,
-)
+def create_app(app_settings: Settings = settings) -> FastAPI:
+    """
+    Build the FastAPI application.
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    Why: the app and the tests use this same factory, so they cannot drift apart.
+    """
+    app = FastAPI(
+        title="FastAPI Docker Boilerplate",
+        description="A production-ready FastAPI backend boilerplate.",
+        version=app_settings.VERSION,
+        debug=app_settings.DEBUG,
+        docs_url=app_settings.DOCS_URL,
+        openapi_url=app_settings.OPENAPI_URL,
+        redoc_url=None,
+        lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=app_settings.CORS_ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(api_router, prefix=app_settings.API_ROOT)
+    register_exceptions_handlers(app)
+    return app
 
-app.include_router(api_router, prefix=settings.API_ROOT)
 
-register_exceptions_handlers(app)
+app = create_app()
