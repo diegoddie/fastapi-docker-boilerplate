@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      args:
+        USER: ${USER:-appuser}
+      context: .
+      target: ${BACKEND_BUILD_TARGET:-remote}
+    image: ${BACKEND_IMAGE_NAME:-boilerplate_backend}:${BACKEND_IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - FASTAPI_CORS_ALLOWED_ORIGINS
+      - FASTAPI_DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/boilerplate}
+      - FASTAPI_DEBUG
+      - FASTAPI_ENVIRONMENT=${FASTAPI_ENVIRONMENT:-remote}
+      - INTERNAL_SERVICE_PORT=${BACKEND_SERVICE_PORT:-8000}
+      - PYTHONBREAKPOINT
+      - PYTHONDEVMODE
+      - SENTRY_DSN
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_SERVICE_PORT:-8000}"
+    user: ${USER:-appuser}
+
+  postgres:
+    environment:
+      - POSTGRES_DB=boilerplate
+      - POSTGRES_INITDB_ARGS=--no-sync
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 10
+      start_period: 20s
+    image: postgres:18-bookworm
+    volumes:
+      - pg_data:/var/lib/postgresql
+
+volumes:
+  pg_data: {}

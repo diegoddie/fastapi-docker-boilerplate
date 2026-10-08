@@ -1,0 +1,25 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{css,html,js,json,md,py,toml,yaml,yml}]
+charset = utf-8
+indent_style = space
+
+[*.py]
+indent_size = 4
+max_line_length = 88
+
+[*.md]
+indent_size = 4
+
+[*.{json,yaml,yml}]
+indent_size = 2
+
+[justfile]
+indent_size = 4

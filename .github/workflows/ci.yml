@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint, type check and test
+    runs-on: ubuntu-latest
+    env:
+      BACKEND_BUILD_TARGET: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker compose build
+      - name: Test
+        run: docker compose run --name backend_test backend
+      - name: Copy coverage report
+        if: always()
+        run: docker cp backend_test:/app/htmlcov htmlcov || true
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: htmlcov
+          path: htmlcov
+          if-no-files-found: ignore
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

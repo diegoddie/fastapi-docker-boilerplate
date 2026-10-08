@@ -1,0 +1,57 @@
+default_language_version:
+  python: python3.14
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: debug-statements
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: file-contents-sorter
+        files: ^(\.env_template|\.dockerignore)$
+        args: ["--ignore-case", "--unique"]
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+  # Why: local hooks run the exact tool versions locked in uv.lock, so the hooks
+  # can never drift from what `just check` and the CI run.
+  - repo: local
+    hooks:
+      - id: uv-lock
+        name: uv lock --check
+        entry: uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: uv run mypy .
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: bandit
+        name: bandit
+        entry: uv run bandit -c pyproject.toml --quiet --recursive .
+        language: system
+        types: [python]
+        pass_filenames: false
