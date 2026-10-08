@@ -1,0 +1,9 @@
+Alembic migrations.
+
+- Create a migration from the models:  just forge "add article model"
+- Apply pending migrations:            just migrate-forward
+- Roll back to a revision:             just migrate-backward <revision>
+- Show the history:                    just showmigrations
+
+Migrations run automatically when the container starts (scripts/entrypoint.sh).
+New models must be imported in app/core/models.py to be picked up by autogenerate.

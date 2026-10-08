@@ -1,0 +1,9 @@
+# Local development overrides, enabled through COMPOSE_FILE in .env.
+services:
+  backend:
+    volumes:
+      - .:/app
+
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
