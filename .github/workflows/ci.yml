@@ -10,6 +10,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  static:
+    name: Lockfile and shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Check the lockfile is up to date
+        run: uv lock --check
+      - name: Lint the shell scripts
+        run: shellcheck scripts/*.sh
+
   test:
     name: Lint, type check and test
     runs-on: ubuntu-latest

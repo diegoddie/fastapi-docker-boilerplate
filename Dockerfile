@@ -41,13 +41,13 @@ RUN apt-get update \
     libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && chown -R "$USER_ID":"$GROUP_ID" "$WORKDIR" \
-    && su "$APPUSER" -c "uv sync --frozen"
+    && su "$APPUSER" -c "uv sync --frozen --no-cache"
 
 FROM base AS remote
 
 LABEL project="fastapi-docker-boilerplate" service="backend" stage="remote"
 
-RUN su "$APPUSER" -c "uv sync --frozen --group remote"
+RUN su "$APPUSER" -c "uv sync --frozen --no-cache --group remote"
 
 COPY --chown=$APPUSER . .
 
@@ -61,7 +61,7 @@ FROM base AS test
 
 LABEL project="fastapi-docker-boilerplate" service="backend" stage="test"
 
-RUN su "$APPUSER" -c "uv sync --frozen --group test"
+RUN su "$APPUSER" -c "uv sync --frozen --no-cache --group test"
 
 COPY --chown=$APPUSER . .
 
@@ -82,7 +82,7 @@ RUN apt-get update \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-RUN su "$APPUSER" -c "uv sync --frozen --group local --group test"
+RUN su "$APPUSER" -c "uv sync --frozen --no-cache --group local --group test"
 
 COPY --chown=$APPUSER . .
 
