@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_pagination import add_pagination
 
 from app.api.router import router as api_router
 from app.core.config import Settings, settings
@@ -52,6 +53,7 @@ def create_app(app_settings: Settings = settings) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(api_router, prefix=app_settings.API_ROOT)
+    add_pagination(app)
     register_exceptions_handlers(app)
     return app
 

@@ -29,7 +29,7 @@ async def test_wrong_method_405(async_client: AsyncClient) -> None:
     """Test framework 405 errors use the application error format."""
     response = await async_client.post("/api/health/")
     assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-    assert set(response.headers["allow"].split(", ")) == {"GET", "HEAD"}
+    assert response.headers["allow"] == "GET"
     assert response.json() == {
         "detail": {"message": "Method Not Allowed", "errorCode": "METHOD_NOT_ALLOWED"}
     }

@@ -5,7 +5,7 @@ from functools import cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, computed_field
+from pydantic import Field, PostgresDsn, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     DATABASE_URL: PostgresDsn
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
+
+    # Authentication
+    # Why: it signs the access tokens, so it has no default and must be long
+    # enough for HS256 (generate one with `openssl rand -hex 32`).
+    SECRET_KEY: SecretStr = Field(min_length=32)
+    JWT_ALGORITHM: Literal["HS256", "HS384", "HS512"] = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15, gt=0)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30, gt=0)
 
     # Pydantic
     model_config = SettingsConfigDict(env_prefix="FASTAPI_")
