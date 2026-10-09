@@ -93,3 +93,8 @@ show-outdated:
 upgrade:
     uv lock --upgrade
     uv sync --group local --group test
+
+# Run a management command, e.g. `just manage users createsuperuser`
+[group("managing")]
+manage *args:
+    uv run -m app.cli.main {{args}}

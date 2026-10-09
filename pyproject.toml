@@ -7,11 +7,15 @@ requires-python = ">=3.14"
 dependencies = [
     "alembic~=1.20.0",
     "alembic-postgresql-enum~=1.10.0",
+    "fastapi-pagination~=0.16.1",
     "fastapi[standard-no-fastapi-cloud-cli]~=0.143.0",
     "psycopg~=3.3.6",
+    "pwdlib[argon2]~=0.3.1",
     "pydantic-settings~=2.15.0",
+    "pyjwt~=2.15.1",
     "sqlalchemy[asyncio]~=2.1.4",
     "sqlmodel~=0.0.48",
+    "typer~=0.27.3",
     "uvicorn[standard]~=0.54.0",
 ]
 
@@ -23,7 +27,10 @@ remote = [
 test = [
     "bandit[toml]~=1.9.4",
     "coverage[toml]~=7.16.2",
+    "dirty-equals~=0.11.0",
+    "inline-snapshot~=0.36.0",
     "mypy~=2.4.0",
+    "polyfactory~=3.3.0",
     "pytest~=9.1.1",
     "pytest-asyncio~=1.4.0",
     "pytest-cov~=7.1.0",
@@ -63,6 +70,8 @@ source = ["."]
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--random-order-bucket=global"
+# Why: a new warning (e.g. after a dependency update) must be looked at, not ignored.
+filterwarnings = ["error"]
 
 [tool.ruff]
 target-version = "py314"
@@ -107,3 +116,6 @@ ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 python_version = "3.14"
 strict = true
+
+[tool.inline-snapshot]
+format-command = "ruff format --stdin-filename {filename}"

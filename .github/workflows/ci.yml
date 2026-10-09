@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BACKEND_BUILD_TARGET: test
+      # Not a real secret: it only signs the tokens of the throwaway test database.
+      FASTAPI_SECRET_KEY: ci-only-secret-key-for-the-test-suite-0123456789
     steps:
       - uses: actions/checkout@v7
       - name: Build

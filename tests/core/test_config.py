@@ -2,6 +2,9 @@
 
 import tomllib
 
+import pytest
+from pydantic import ValidationError
+
 from app.core.config import PROJECT_ROOT, Settings, get_project_version
 
 
@@ -39,3 +42,9 @@ def test_settings_version() -> None:
         version = tomllib.load(file)["project"]["version"]
     assert get_project_version() == version
     assert version == Settings().VERSION
+
+
+def test_settings_secret_key_too_short() -> None:
+    """Test a secret key too short for HS256 is rejected at startup."""
+    with pytest.raises(ValidationError, match="SECRET_KEY"):
+        Settings(SECRET_KEY="too-short")

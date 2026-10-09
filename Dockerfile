@@ -92,7 +92,7 @@ ENV UVICORN_HOST="0.0.0.0" \
     UVICORN_PORT="$INTERNAL_SERVICE_PORT"
 
 HEALTHCHECK --start-period=5s --retries=5 \
-    CMD curl --fail --head http://localhost:$INTERNAL_SERVICE_PORT/api/health/ \
+    CMD curl --fail --silent --output /dev/null http://localhost:$INTERNAL_SERVICE_PORT/api/health/ \
     || exit 1
 
 ENTRYPOINT ["./scripts/entrypoint.sh"]

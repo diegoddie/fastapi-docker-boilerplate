@@ -12,13 +12,13 @@ router = APIRouter()
 router.include_router(api_v1_router, prefix="/v1")
 
 
-@router.api_route("/health/", methods=["GET", "HEAD"], tags=["system"])
+@router.get("/health/", tags=["system"])
 async def health() -> bool:
     """Perform a liveness check: the app is up and serving requests."""
     return True
 
 
-@router.api_route("/ready/", methods=["GET", "HEAD"], tags=["system"])
+@router.get("/ready/", tags=["system"])
 async def ready(session: AsyncDBSession) -> bool:
     """Perform a readiness check: the app can reach the database."""
     try:
