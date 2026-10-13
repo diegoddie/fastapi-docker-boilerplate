@@ -11,11 +11,19 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlmodel import col, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth.models import RefreshToken
+from app.auth.identity import (
+    IdentityProvider,
+    IdentityProviderUnavailableError,
+    InvalidIdentityTokenError,
+)
+from app.auth.models import ExternalIdentity, RefreshToken
 from app.auth.schemas import TokenPublicSchemaResponse
 from app.auth.security import AccessTokenCodec, PasswordHasher
 from app.core.config import settings
-from app.core.exceptions import UnauthorizedHTTPException
+from app.core.exceptions import (
+    ServiceUnavailableHTTPException,
+    UnauthorizedHTTPException,
+)
 from app.users.models import User
 
 
@@ -46,6 +54,72 @@ class AuthService:
             raise UnauthorizedHTTPException(
                 message="Invalid email or password.", error_code="INVALID_CREDENTIALS"
             )
+        return user
+
+    @staticmethod
+    async def authenticate_external(
+        token: str, provider: IdentityProvider, session: AsyncSession
+    ) -> User:
+        """
+        Return the user of an external identity, creating or linking it if new.
+
+        A new identity is linked to the user with the same email, if any, but only
+        when the provider has verified that email; otherwise a member is created.
+        """
+        try:
+            claims = await provider.verify(token)
+        except IdentityProviderUnavailableError as e:
+            raise ServiceUnavailableHTTPException(
+                message="The identity provider is not reachable.",
+                error_code="IDENTITY_PROVIDER_UNAVAILABLE",
+            ) from e
+        except InvalidIdentityTokenError as e:
+            raise UnauthorizedHTTPException(
+                message="Invalid identity token.", error_code="INVALID_ID_TOKEN"
+            ) from e
+        identity = (
+            await session.exec(
+                select(ExternalIdentity)
+                .where(
+                    ExternalIdentity.provider == claims.provider,
+                    ExternalIdentity.subject == claims.subject,
+                )
+                .options(
+                    selectinload(
+                        cast(InstrumentedAttribute[User], ExternalIdentity.user)
+                    )
+                )
+            )
+        ).one_or_none()
+        if identity is not None:
+            user = identity.user
+        else:
+            # Why: without a verified email anyone could claim someone else's
+            # address and take over their account.
+            if not claims.email_verified:
+                raise UnauthorizedHTTPException(
+                    message="The email of the external account is not verified.",
+                    error_code="EMAIL_NOT_VERIFIED",
+                )
+            email = claims.email.lower()
+            existing = (
+                await session.exec(select(User).where(User.email == email))
+            ).one_or_none()
+            user = existing or User(
+                email=email, first_name=claims.first_name, last_name=claims.last_name
+            )
+        if not user.is_active:
+            raise UnauthorizedHTTPException(
+                message="Invalid email or password.", error_code="INVALID_CREDENTIALS"
+            )
+        if identity is None:
+            session.add(user)
+            session.add(
+                ExternalIdentity(
+                    user_id=user.id, provider=claims.provider, subject=claims.subject
+                )
+            )
+            await session.commit()
         return user
 
     @staticmethod

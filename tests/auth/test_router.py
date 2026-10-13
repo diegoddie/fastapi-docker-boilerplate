@@ -1,7 +1,6 @@
 """The auth package router tests."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
 from dirty_equals import IsDatetime, IsStr, IsUUID
@@ -17,28 +16,6 @@ from app.users.models import User
 from tests.factories.users import TEST_PASSWORD, UserFactory
 from tests.utils import AsyncClient
 
-REGISTER_URL = "/api/v1/auth/register/"
-LOGIN_URL = "/api/v1/auth/login/"
-REFRESH_URL = "/api/v1/auth/refresh/"
-LOGOUT_URL = "/api/v1/auth/logout/"
-ME_URL = "/api/v1/users/user/me/"
-
-
-async def login(
-    client: AsyncClient, email: str, password: str = TEST_PASSWORD
-) -> dict[str, Any]:
-    """Log in through the API and return the token response."""
-    response = await client.post(
-        LOGIN_URL, data={"username": email, "password": password}
-    )
-    assert response.status_code == status.HTTP_200_OK
-    return dict(response.json())
-
-
-async def refresh(client: AsyncClient, refresh_token: str) -> Any:
-    """Call the refresh endpoint and return the response."""
-    return await client.post(REFRESH_URL, json={"refresh_token": refresh_token})
-
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_register_user_route_201(
@@ -46,7 +23,7 @@ async def test_register_user_route_201(
 ) -> None:
     """Test the register user route 201: a new member with a hashed password."""
     response = await async_client.post(
-        REGISTER_URL,
+        "/api/v1/auth/register/",
         json={
             "email": "New.User@Example.com",
             "password": "a-strong-password",
@@ -83,7 +60,7 @@ async def test_register_user_route_409(
 ) -> None:
     """Test the register user route 409 for an email already registered."""
     response = await async_client.post(
-        REGISTER_URL,
+        "/api/v1/auth/register/",
         json={
             "email": "BOB@example.com",
             "password": "a-strong-password",
@@ -106,7 +83,7 @@ async def test_register_user_route_409(
 async def test_register_user_route_422(async_client: AsyncClient) -> None:
     """Test the register user route 422 without echoing the password back."""
     response = await async_client.post(
-        REGISTER_URL,
+        "/api/v1/auth/register/",
         json={"email": "not-an-email", "password": "s3cr3t!", "firstName": ""},
     )
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -130,11 +107,6 @@ async def test_register_user_route_422(async_client: AsyncClient) -> None:
                         "type": "string_too_short",
                     },
                     {
-                        "field": "body.lastName",
-                        "message": "Field required",
-                        "type": "missing",
-                    },
-                    {
                         "field": "body.password",
                         "message": "String should have at least 8 characters",
                         "type": "string_too_short",
@@ -151,7 +123,7 @@ async def test_login_user_route_200(
     async_client: AsyncClient, async_db_session: AsyncSession, bob_member_user: User
 ) -> None:
     """Test the login user route 200: a token pair that authenticates requests."""
-    tokens = await login(async_client, "Bob@Example.com")
+    tokens = await async_client.password_login("Bob@Example.com")
     assert tokens == snapshot(
         {
             "access_token": IsStr,
@@ -165,7 +137,8 @@ async def test_login_user_route_200(
     assert stored.token_hash == hash_refresh_token(tokens["refresh_token"])
     assert stored.datetime_revoked is None
     response = await async_client.get(
-        ME_URL, headers={"Authorization": f"Bearer {tokens['access_token']}"}
+        "/api/v1/users/user/me/",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
     )
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["email"] == "bob@example.com"
@@ -193,7 +166,7 @@ async def test_login_user_route_401(
     """Test the login user route 401 gives the same answer for every failure."""
     await user_factory.create_async(email="erin@example.com", password_hash=None)
     response = await async_client.post(
-        LOGIN_URL, data={"username": email, "password": password}
+        "/api/v1/auth/login/", data={"username": email, "password": password}
     )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json() == snapshot(
@@ -211,8 +184,10 @@ async def test_refresh_token_route_200(
     async_client: AsyncClient, async_db_session: AsyncSession, bob_member_user: User
 ) -> None:
     """Test the refresh token route 200 rotates the refresh token."""
-    first = await login(async_client, "bob@example.com")
-    response = await refresh(async_client, first["refresh_token"])
+    first = await async_client.password_login("bob@example.com")
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_200_OK
     second = response.json()
     assert second["refresh_token"] != first["refresh_token"]
@@ -226,7 +201,8 @@ async def test_refresh_token_route_200(
     assert new.datetime_revoked is None
     assert new.family_id == old.family_id
     response = await async_client.get(
-        ME_URL, headers={"Authorization": f"Bearer {second['access_token']}"}
+        "/api/v1/users/user/me/",
+        headers={"Authorization": f"Bearer {second['access_token']}"},
     )
     assert response.status_code == status.HTTP_200_OK
 
@@ -236,9 +212,15 @@ async def test_refresh_token_route_401_reuse(
     async_client: AsyncClient, bob_member_user: User
 ) -> None:
     """Test reusing a rotated refresh token ends the whole session."""
-    first = await login(async_client, "bob@example.com")
-    second = (await refresh(async_client, first["refresh_token"])).json()
-    response = await refresh(async_client, first["refresh_token"])
+    first = await async_client.password_login("bob@example.com")
+    second = (
+        await async_client.post(
+            "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
+        )
+    ).json()
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json() == snapshot(
         {
@@ -248,14 +230,18 @@ async def test_refresh_token_route_401_reuse(
             }
         }
     )
-    response = await refresh(async_client, second["refresh_token"])
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": second["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_refresh_token_route_401_unknown(async_client: AsyncClient) -> None:
     """Test the refresh token route 401 for a token that was never issued."""
-    response = await refresh(async_client, "never-issued")
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": "never-issued"}
+    )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"]["errorCode"] == "INVALID_REFRESH_TOKEN"
 
@@ -265,13 +251,15 @@ async def test_refresh_token_route_401_expired(
     async_client: AsyncClient, async_db_session: AsyncSession, bob_member_user: User
 ) -> None:
     """Test the refresh token route 401 for an expired token."""
-    tokens = await login(async_client, "bob@example.com")
+    tokens = await async_client.password_login("bob@example.com")
     await async_db_session.exec(
         update(RefreshToken).values(
             datetime_expires=datetime.now(UTC) - timedelta(seconds=1)
         )
     )
-    response = await refresh(async_client, tokens["refresh_token"])
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": tokens["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -280,11 +268,13 @@ async def test_refresh_token_route_401_disabled_user(
     async_client: AsyncClient, async_db_session: AsyncSession, bob_member_user: User
 ) -> None:
     """Test the refresh token route 401 once the user has been disabled."""
-    tokens = await login(async_client, "bob@example.com")
+    tokens = await async_client.password_login("bob@example.com")
     bob_member_user.datetime_disabled = datetime.now(UTC)
     async_db_session.add(bob_member_user)
     await async_db_session.commit()
-    response = await refresh(async_client, tokens["refresh_token"])
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": tokens["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -293,16 +283,20 @@ async def test_logout_user_route_204(
     async_client: AsyncClient, bob_member_user: User
 ) -> None:
     """Test the logout user route 204 ends only the session of the token."""
-    laptop = await login(async_client, "bob@example.com")
-    phone = await login(async_client, "bob@example.com")
+    laptop = await async_client.password_login("bob@example.com")
+    phone = await async_client.password_login("bob@example.com")
     response = await async_client.post(
-        LOGOUT_URL, json={"refresh_token": laptop["refresh_token"]}
+        "/api/v1/auth/logout/", json={"refresh_token": laptop["refresh_token"]}
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert response.content == b""
-    response = await refresh(async_client, laptop["refresh_token"])
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": laptop["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    response = await refresh(async_client, phone["refresh_token"])
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": phone["refresh_token"]}
+    )
     assert response.status_code == status.HTTP_200_OK
 
 
@@ -310,7 +304,7 @@ async def test_logout_user_route_204(
 async def test_logout_user_route_204_unknown(async_client: AsyncClient) -> None:
     """Test the logout user route 204 is idempotent for unknown tokens."""
     response = await async_client.post(
-        LOGOUT_URL, json={"refresh_token": "never-issued"}
+        "/api/v1/auth/logout/", json={"refresh_token": "never-issued"}
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
@@ -318,7 +312,7 @@ async def test_logout_user_route_204_unknown(async_client: AsyncClient) -> None:
 @pytest.mark.asyncio(loop_scope="function")
 async def test_access_token_401_missing(async_client: AsyncClient) -> None:
     """Test protected routes answer 401 without an access token."""
-    response = await async_client.get(ME_URL)
+    response = await async_client.get("/api/v1/users/user/me/")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.headers["www-authenticate"] == "Bearer"
     assert response.json() == snapshot(
@@ -330,7 +324,7 @@ async def test_access_token_401_missing(async_client: AsyncClient) -> None:
 async def test_access_token_401_invalid(async_client: AsyncClient) -> None:
     """Test protected routes answer 401 for a malformed access token."""
     response = await async_client.get(
-        ME_URL, headers={"Authorization": "Bearer not-a-jwt"}
+        "/api/v1/users/user/me/", headers={"Authorization": "Bearer not-a-jwt"}
     )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json() == snapshot(
@@ -348,12 +342,13 @@ async def test_access_token_401_disabled_user(
     async_client: AsyncClient, async_db_session: AsyncSession, bob_member_user: User
 ) -> None:
     """Test a valid access token stops working as soon as the user is disabled."""
-    tokens = await login(async_client, "bob@example.com")
+    tokens = await async_client.password_login("bob@example.com")
     bob_member_user.datetime_disabled = datetime.now(UTC)
     async_db_session.add(bob_member_user)
     await async_db_session.commit()
     response = await async_client.get(
-        ME_URL, headers={"Authorization": f"Bearer {tokens['access_token']}"}
+        "/api/v1/users/user/me/",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
     )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"]["errorCode"] == "INVALID_TOKEN"

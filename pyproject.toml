@@ -12,7 +12,7 @@ dependencies = [
     "psycopg~=3.3.6",
     "pwdlib[argon2]~=0.3.1",
     "pydantic-settings~=2.15.0",
-    "pyjwt~=2.15.1",
+    "pyjwt[crypto]~=2.15.1",
     "sqlalchemy[asyncio]~=2.1.4",
     "sqlmodel~=0.0.48",
     "typer~=0.27.3",
@@ -103,7 +103,7 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "app/migrations/*.py" = ["D100", "D101", "D102", "D104"]
-"tests/**/*.py" = ["S101", "S105", "S106"]
+"tests/**/*.py" = ["S101", "S105", "S106", "S107"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

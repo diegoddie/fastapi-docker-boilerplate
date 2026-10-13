@@ -63,18 +63,17 @@ async def test_ready_route_503(
     }
 
 
-PUBLIC_PATHS = {
-    "/api/health/",
-    "/api/ready/",
-    "/api/v1/auth/register/",
-    "/api/v1/auth/login/",
-    "/api/v1/auth/refresh/",
-    "/api/v1/auth/logout/",
-}
-
-
 def test_every_route_requires_authentication(test_app: FastAPI) -> None:
-    """Test no route is public by mistake: only PUBLIC_PATHS skip authentication."""
+    """Test no route is public by mistake: only the listed paths are public."""
+    public_paths = {
+        "/api/health/",
+        "/api/ready/",
+        "/api/v1/auth/register/",
+        "/api/v1/auth/login/",
+        "/api/v1/auth/refresh/",
+        "/api/v1/auth/logout/",
+        "/api/v1/auth/google/",
+    }
     # Why: the OpenAPI schema lists a security requirement for every operation
     # that depends on the bearer token, i.e. exactly what clients will see.
     operations = {
@@ -82,10 +81,10 @@ def test_every_route_requires_authentication(test_app: FastAPI) -> None:
         for path, methods in test_app.openapi()["paths"].items()
         for method, operation in methods.items()
     }
-    assert {path for path, _ in operations} >= PUBLIC_PATHS
+    assert {path for path, _ in operations} >= public_paths
     unprotected = sorted(
         f"{method.upper()} {path}"
         for (path, method), operation in operations.items()
-        if path not in PUBLIC_PATHS and "security" not in operation
+        if path not in public_paths and "security" not in operation
     )
     assert unprotected == []
