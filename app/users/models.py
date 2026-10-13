@@ -9,16 +9,17 @@ from sqlalchemy.ext.mutable import MutableList
 from sqlmodel import Field, SQLModel
 
 from app.commons.models import BaseSQLModel
-from app.users.constants import GROUPS
+from app.users.constants import EMAIL_MAX_LENGTH, GROUPS, NAME_MAX_LENGTH
 from app.users.enums import Group
 
 
 class BaseUser(SQLModel):
     """The base user: fields shared by the table model and the API schemas."""
 
-    email: EmailStr = Field(max_length=320, unique=True)
-    first_name: str = Field(min_length=1, max_length=150)
-    last_name: str = Field(min_length=1, max_length=150)
+    email: EmailStr = Field(max_length=EMAIL_MAX_LENGTH, unique=True)
+    first_name: str = Field(min_length=1, max_length=NAME_MAX_LENGTH)
+    # Why: optional, because some people (and some external accounts) have one name.
+    last_name: str = Field(default="", max_length=NAME_MAX_LENGTH)
 
     @field_validator("email", mode="after")
     @classmethod

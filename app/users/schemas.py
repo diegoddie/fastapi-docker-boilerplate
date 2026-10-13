@@ -7,12 +7,17 @@ from uuid import UUID
 from pydantic import StringConstraints, field_validator
 
 from app.commons.schemas import BasePublicSchema, UTCAwareDatetime
+from app.users.constants import NAME_MAX_LENGTH
 from app.users.enums import Group
 from app.users.models import BaseUser
 
 Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
-Name = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)
+FirstName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=NAME_MAX_LENGTH),
+]
+LastName = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=NAME_MAX_LENGTH)
 ]
 
 
@@ -41,8 +46,8 @@ def reject_null(value: object) -> object:
 class UserMePublicSchemaUpdate(BasePublicSchema):
     """The user public schema update for the current user's own profile."""
 
-    first_name: Name | None = None
-    last_name: Name | None = None
+    first_name: FirstName | None = None
+    last_name: LastName | None = None
 
     # Why: `None` here means "not sent" (PATCH semantics); these columns are not
     # nullable, so an explicit null is a client error, not a database error.

@@ -1,18 +1,30 @@
 """The auth package router."""
 
+import html
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
-from app.auth.schemas import RefreshTokenPublicSchemaPayload, TokenPublicSchemaResponse
+from app.auth.identity import GoogleIdentityProviderDep
+from app.auth.schemas import (
+    IdTokenPublicSchemaPayload,
+    RefreshTokenPublicSchemaPayload,
+    TokenPublicSchemaResponse,
+)
 from app.auth.security import AccessTokenCodecDep, PasswordHasherDep
 from app.auth.services import AuthService
+from app.core.config import settings
 from app.core.database import AsyncDBSession
+from app.core.exceptions import NotFoundHTTPException
 from app.users.schemas import UserPublicSchemaCreate, UserPublicSchemaResponse
 from app.users.services import UserService
 
 router = APIRouter()
+
+GOOGLE_TEST_PAGE = Path(__file__).parent / "templates" / "google_sign_in.html"
 
 
 @router.post(
@@ -70,3 +82,36 @@ async def logout_user_route(
 ) -> None:
     """Logout user route."""
     await AuthService.logout(payload.refresh_token, session)
+
+
+@router.post(
+    "/google/",
+    summary="Sign in with a Google ID token",
+    status_code=status.HTTP_200_OK,
+    response_model=TokenPublicSchemaResponse,
+)
+async def login_google_user_route(
+    payload: IdTokenPublicSchemaPayload,
+    session: AsyncDBSession,
+    provider: GoogleIdentityProviderDep,
+    codec: AccessTokenCodecDep,
+) -> Any:
+    """Login Google user route (the frontend sends the ID token Google issued)."""
+    user = await AuthService.authenticate_external(payload.id_token, provider, session)
+    return await AuthService.issue_tokens(user, session, codec)
+
+
+@router.get("/google/test-page/", include_in_schema=False)
+async def google_test_page_route() -> HTMLResponse:
+    """Google test page route: try Google sign-in locally, without a frontend."""
+    # Why: a development aid, served only where the API docs are served.
+    if not (settings.docs_enabled and settings.GOOGLE_CLIENT_ID):
+        raise NotFoundHTTPException(message="Not Found")
+    api_v1 = f"{settings.API_ROOT}/v1"
+    page = (
+        GOOGLE_TEST_PAGE.read_text()
+        .replace("{{ GOOGLE_CLIENT_ID }}", html.escape(settings.GOOGLE_CLIENT_ID))
+        .replace("{{ LOGIN_URL }}", html.escape(f"{api_v1}/auth/google/"))
+        .replace("{{ ME_URL }}", html.escape(f"{api_v1}/users/user/me/"))
+    )
+    return HTMLResponse(page)

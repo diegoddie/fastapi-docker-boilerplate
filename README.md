@@ -16,7 +16,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 ## Features
 
 - **Async all the way**: FastAPI + SQLModel/SQLAlchemy 2 async sessions on PostgreSQL (psycopg 3)
-- **Authentication**: open registration, email + password login (argon2), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection and real logout; the Swagger UI "Authorize" button works out of the box
+- **Authentication**: open registration, email + password login (argon2), **Sign in with Google**, short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection and real logout; the Swagger UI "Authorize" button works out of the box
 - **Permissions**: users belong to groups, groups grant permissions, and routes declare the permission they need (`require_any_permissions`)
 - **Users API**: profile (`me`), and paginated user management for administrators
 - **Typed configuration** with pydantic-settings, all variables prefixed with `FASTAPI_`
@@ -77,12 +77,32 @@ docker compose run --rm backend just manage users createsuperuser
 | `POST` | `/api/v1/auth/login/` | public | Log in (OAuth2 password form) and get a token pair |
 | `POST` | `/api/v1/auth/refresh/` | public | Exchange a refresh token for a new pair (rotation) |
 | `POST` | `/api/v1/auth/logout/` | public | Revoke the session of a refresh token |
+| `POST` | `/api/v1/auth/google/` | public | Sign in with a Google ID token and get a token pair |
 | `GET` / `PATCH` | `/api/v1/users/user/me/` | authenticated | Read or update your own profile |
 | `GET` | `/api/v1/users/user/` | `can_view_user` | List users (paginated) |
 | `GET` | `/api/v1/users/user/{id}/` | `can_view_user` | User detail |
 | `PATCH` | `/api/v1/users/user/{id}/` | `can_edit_user` | Change names, groups, or (re)activate a user |
 | `DELETE` | `/api/v1/users/user/{id}/` | `can_disable_user` | Disable a user and end all their sessions |
 | `GET` | `/api/health/`, `/api/ready/` | public | Liveness and readiness checks |
+
+## Sign in with Google
+
+The frontend shows Google's "Sign in with Google" button, receives an **ID token** from Google and sends it to `POST /api/v1/auth/google/` as `{"id_token": "..."}`. The backend verifies the token (Google's signature, issuer, audience, expiry) and answers with the same token pair as the password login:
+
+- the first sign-in creates a `member` without a password;
+- if an account with the same email exists, it is linked, but only when Google has verified the email;
+- the next sign-ins find the user through the Google account id, even if the email changes.
+
+To enable it:
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/), create a project and configure the consent screen (*Google Auth Platform*); while the app is in testing, add your account as a test user.
+2. Create an OAuth client of type **Web application**, with `http://localhost:8000` and `http://localhost` as authorized JavaScript origins (no redirect URI is needed).
+3. Set `FASTAPI_GOOGLE_CLIENT_ID` in `.env` and restart the backend. The client secret is not needed.
+4. Open http://localhost:8000/api/v1/auth/google/test-page/: a local page (served only when the docs are) with the Google button, which shows the tokens returned by the backend.
+
+Without a client id, Google sign-in answers `404` with `errorCode: GOOGLE_SIGN_IN_DISABLED`.
+
+## Groups and permissions
 
 Groups and the permissions they grant are defined in `app/users/constants.py`: `admin` has every user permission, `member` and `viewer` will get the permissions of the example domain.
 
@@ -159,7 +179,9 @@ New features live in their own **domain package** (`app/<domain>/` with `models.
 - **One app factory.** `create_app()` builds the application for production and for the tests alike, so what is tested is what runs.
 - **Refresh tokens live in the database.** Access tokens are short-lived JWTs (15 minutes) carrying only the user id. Refresh tokens are random strings stored as SHA-256 hashes: every refresh revokes the token and issues a new one in the same family, presenting a revoked token ends the whole family (stolen token detection), and logout really ends the session.
 - **Every request reads the user.** Disabling a user takes effect immediately, even while their access token is still valid; permissions are computed from the groups on every request, so changing a group needs no new login.
-- **Security primitives behind interfaces.** Services depend on the `PasswordHasher` and `AccessTokenCodec` protocols, not on argon2 or JWT, so implementations can be swapped and faked in tests.
+- **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
+- **External identities in their own table.** A user can be linked to several external accounts (provider + account id) and still have a password; an account is linked by email only when the provider verified that email, so nobody can take over an account with an unverified address.
+- **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
 - **OAuth 2.0 where it matters.** The token endpoints use the snake_case fields of RFC 6749 (`access_token`, `refresh_token`…), which Swagger UI and OAuth client libraries expect; the rest of the API is camelCase.
 - **Tests guard the API surface.** A test reads the OpenAPI schema and fails if any route outside an explicit list of public paths lacks authentication.
 - **Timestamps are always UTC.** `UTCDateTime` stores `timestamptz` values and refuses naive datetimes instead of letting the server timezone silently decide.
@@ -188,6 +210,8 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_JWT_ALGORITHM` | `HS256` | `HS256`, `HS384` or `HS512` |
 | `FASTAPI_ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access token lifetime |
 | `FASTAPI_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
+| `FASTAPI_GOOGLE_CLIENT_ID` | — | OAuth client id that enables Sign in with Google |
+| `FASTAPI_GOOGLE_CERTS_URL` | Google's public keys URL | Where Google's signing keys are fetched from |
 | `SENTRY_DSN` | — | Enables Sentry in the `remote` image |
 | `WEB_CONCURRENCY` | `2` | Number of gunicorn workers |
 
@@ -211,7 +235,7 @@ Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND
 - [x] Foundations: tooling, core infrastructure, Docker, CI
 - [x] Users and JWT authentication: registration, rotating refresh tokens, groups and permissions
 - [x] Database-backed tests: transaction rollback per test, factories, personas, snapshots
-- [ ] Sign in with Google
+- [x] Sign in with Google
 - [ ] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
 - [ ] JSON logs with request id, more management commands
 - [ ] Architecture documentation and ADRs

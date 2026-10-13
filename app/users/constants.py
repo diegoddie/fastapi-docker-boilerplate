@@ -2,6 +2,9 @@
 
 from app.users.enums import Group
 
+EMAIL_MAX_LENGTH = 320
+NAME_MAX_LENGTH = 150
+
 CAN_VIEW_USER = "can_view_user"
 CAN_EDIT_USER = "can_edit_user"
 CAN_DISABLE_USER = "can_disable_user"

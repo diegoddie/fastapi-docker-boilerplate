@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in with Google - local test page</title>
+    <script src="https://accounts.google.com/gsi/client" async></script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 48rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      pre {
+        background: #f4f4f5;
+        padding: 1rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body data-login-url="{{ LOGIN_URL }}" data-me-url="{{ ME_URL }}">
+    <h1>Sign in with Google</h1>
+    <p>
+      Local test page: Google gives the browser an ID token, the page sends it to
+      the backend and shows the tokens the backend returns, then calls the
+      <code>me</code> endpoint with the access token.
+    </p>
+    <div
+      id="g_id_onload"
+      data-client_id="{{ GOOGLE_CLIENT_ID }}"
+      data-callback="onGoogleCredential"
+      data-auto_prompt="false"
+    ></div>
+    <div class="g_id_signin" data-type="standard"></div>
+
+    <h2>Backend response</h2>
+    <pre id="tokens">-</pre>
+    <h2>Current user</h2>
+    <pre id="me">-</pre>
+
+    <script>
+      async function onGoogleCredential(response) {
+        const { loginUrl, meUrl } = document.body.dataset;
+        const login = await fetch(loginUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_token: response.credential }),
+        });
+        const tokens = await login.json();
+        document.getElementById("tokens").textContent = JSON.stringify(tokens, null, 2);
+        if (!login.ok) return;
+        const me = await fetch(meUrl, {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        document.getElementById("me").textContent = JSON.stringify(await me.json(), null, 2);
+      }
+    </script>
+  </body>
+</html>

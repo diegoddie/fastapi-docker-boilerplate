@@ -9,29 +9,22 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import RefreshToken
 from app.users.models import User
-from tests.factories.users import TEST_PASSWORD, UserFactory
+from tests.factories.users import UserFactory
 from tests.utils import AsyncClient
 
 DUMMY_UUID = "00000000-0000-0000-0000-000000000000"
-ME_URL = "/api/v1/users/user/me/"
-LIST_URL = "/api/v1/users/user/"
-
-
-def detail_url(user_id: object) -> str:
-    """Return the URL of a user."""
-    return f"/api/v1/users/user/{user_id}/"
 
 
 @pytest.mark.asyncio(loop_scope="function")
 @pytest.mark.parametrize(
     ("method", "url"),
     [
-        ("get", ME_URL),
-        ("patch", ME_URL),
-        ("get", LIST_URL),
-        ("get", detail_url(DUMMY_UUID)),
-        ("patch", detail_url(DUMMY_UUID)),
-        ("delete", detail_url(DUMMY_UUID)),
+        ("get", "/api/v1/users/user/me/"),
+        ("patch", "/api/v1/users/user/me/"),
+        ("get", "/api/v1/users/user/"),
+        ("get", f"/api/v1/users/user/{DUMMY_UUID}/"),
+        ("patch", f"/api/v1/users/user/{DUMMY_UUID}/"),
+        ("delete", f"/api/v1/users/user/{DUMMY_UUID}/"),
     ],
     ids=[
         "me_user",
@@ -52,10 +45,10 @@ async def test_route_401(async_client: AsyncClient, method: str, url: str) -> No
 @pytest.mark.parametrize(
     ("method", "url"),
     [
-        ("get", LIST_URL),
-        ("get", detail_url(DUMMY_UUID)),
-        ("patch", detail_url(DUMMY_UUID)),
-        ("delete", detail_url(DUMMY_UUID)),
+        ("get", "/api/v1/users/user/"),
+        ("get", f"/api/v1/users/user/{DUMMY_UUID}/"),
+        ("patch", f"/api/v1/users/user/{DUMMY_UUID}/"),
+        ("delete", f"/api/v1/users/user/{DUMMY_UUID}/"),
     ],
     ids=["list_users", "detail_user", "update_user", "delete_user"],
 )
@@ -82,7 +75,7 @@ async def test_me_user_route_200(
 ) -> None:
     """Test the me user route 200."""
     async_client.login(bob_member_user)
-    response = await async_client.get(ME_URL)
+    response = await async_client.get("/api/v1/users/user/me/")
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == snapshot(
         {
@@ -103,7 +96,9 @@ async def test_update_me_user_route_204(
 ) -> None:
     """Test the update me user route 204 changes only the given fields."""
     async_client.login(bob_member_user)
-    response = await async_client.patch(ME_URL, json={"firstName": "  Robert  "})
+    response = await async_client.patch(
+        "/api/v1/users/user/me/", json={"firstName": "  Robert  "}
+    )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     async_db_session.expunge_all()
     user = await async_db_session.get(User, bob_member_user.id)
@@ -117,7 +112,9 @@ async def test_update_me_user_route_422(
 ) -> None:
     """Test the update me user route 422 for an explicit null."""
     async_client.login(bob_member_user)
-    response = await async_client.patch(ME_URL, json={"lastName": None})
+    response = await async_client.patch(
+        "/api/v1/users/user/me/", json={"lastName": None}
+    )
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert response.json()["detail"]["errors"] == snapshot(
         [
@@ -140,7 +137,9 @@ async def test_list_users_route_200(
 ) -> None:
     """Test the list users route 200 is paginated and sorted by email."""
     async_client.login(alice_admin_user)
-    response = await async_client.get(LIST_URL, params={"size": 2, "page": 2})
+    response = await async_client.get(
+        "/api/v1/users/user/", params={"size": 2, "page": 2}
+    )
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == snapshot(
         {
@@ -181,7 +180,7 @@ async def test_list_users_route_200_default_page(
     """Test the list users route 200 with the default page size."""
     await user_factory.create_batch_async(3)
     async_client.login(alice_admin_user)
-    response = await async_client.get(LIST_URL)
+    response = await async_client.get("/api/v1/users/user/")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert (data["total"], data["page"], data["size"]) == (4, 1, 50)
@@ -196,7 +195,7 @@ async def test_detail_user_route_200(
 ) -> None:
     """Test the detail user route 200."""
     async_client.login(alice_admin_user)
-    response = await async_client.get(detail_url(carol_viewer_user.id))
+    response = await async_client.get(f"/api/v1/users/user/{carol_viewer_user.id}/")
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["email"] == "carol@example.com"
 
@@ -207,7 +206,7 @@ async def test_detail_user_route_404(
 ) -> None:
     """Test the detail user route 404."""
     async_client.login(alice_admin_user)
-    response = await async_client.get(detail_url(DUMMY_UUID))
+    response = await async_client.get(f"/api/v1/users/user/{DUMMY_UUID}/")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json() == snapshot(
         {
@@ -229,7 +228,7 @@ async def test_update_user_route_204(
     """Test the update user route 204 changes the groups."""
     async_client.login(alice_admin_user)
     response = await async_client.patch(
-        detail_url(bob_member_user.id), json={"groups": ["viewer"]}
+        f"/api/v1/users/user/{bob_member_user.id}/", json={"groups": ["viewer"]}
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     async_db_session.expunge_all()
@@ -249,7 +248,7 @@ async def test_update_user_route_204_reactivate(
     """Test the update user route 204 reactivates a disabled user."""
     async_client.login(alice_admin_user)
     response = await async_client.patch(
-        detail_url(dave_disabled_user.id), json={"datetimeDisabled": None}
+        f"/api/v1/users/user/{dave_disabled_user.id}/", json={"datetimeDisabled": None}
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     async_db_session.expunge_all()
@@ -265,7 +264,7 @@ async def test_update_user_route_403_self(
     """Test the update user route 403 when administrators change their own access."""
     async_client.login(alice_admin_user)
     response = await async_client.patch(
-        detail_url(alice_admin_user.id), json={"groups": ["member"]}
+        f"/api/v1/users/user/{alice_admin_user.id}/", json={"groups": ["member"]}
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json() == snapshot(
@@ -284,7 +283,9 @@ async def test_update_user_route_404(
 ) -> None:
     """Test the update user route 404."""
     async_client.login(alice_admin_user)
-    response = await async_client.patch(detail_url(DUMMY_UUID), json={"groups": []})
+    response = await async_client.patch(
+        f"/api/v1/users/user/{DUMMY_UUID}/", json={"groups": []}
+    )
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
@@ -296,13 +297,9 @@ async def test_delete_user_route_204(
     bob_member_user: User,
 ) -> None:
     """Test the delete user route 204 disables the user and ends their sessions."""
-    response = await async_client.post(
-        "/api/v1/auth/login/",
-        data={"username": "bob@example.com", "password": TEST_PASSWORD},
-    )
-    assert response.status_code == status.HTTP_200_OK
+    await async_client.password_login("bob@example.com")
     async_client.login(alice_admin_user)
-    response = await async_client.delete(detail_url(bob_member_user.id))
+    response = await async_client.delete(f"/api/v1/users/user/{bob_member_user.id}/")
     assert response.status_code == status.HTTP_204_NO_CONTENT
     async_db_session.expunge_all()
     user = await async_db_session.get(User, bob_member_user.id)
@@ -318,7 +315,7 @@ async def test_delete_user_route_403_self(
 ) -> None:
     """Test the delete user route 403 when administrators disable themselves."""
     async_client.login(alice_admin_user)
-    response = await async_client.delete(detail_url(alice_admin_user.id))
+    response = await async_client.delete(f"/api/v1/users/user/{alice_admin_user.id}/")
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json()["detail"]["errorCode"] == "SELF_ACCESS_CHANGE"
 
@@ -329,9 +326,13 @@ async def test_logout_from_client(
 ) -> None:
     """Test the test client logout removes the authentication."""
     async_client.login(alice_admin_user)
-    assert (await async_client.get(ME_URL)).status_code == status.HTTP_200_OK
+    assert (
+        await async_client.get("/api/v1/users/user/me/")
+    ).status_code == status.HTTP_200_OK
     async_client.logout()
-    assert (await async_client.get(ME_URL)).status_code == status.HTTP_401_UNAUTHORIZED
+    assert (
+        await async_client.get("/api/v1/users/user/me/")
+    ).status_code == status.HTTP_401_UNAUTHORIZED
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -340,5 +341,5 @@ async def test_disabled_user_cannot_use_the_api(
 ) -> None:
     """Test a disabled user is rejected even when authenticated."""
     async_client.login(dave_disabled_user)
-    response = await async_client.get(ME_URL)
+    response = await async_client.get("/api/v1/users/user/me/")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED

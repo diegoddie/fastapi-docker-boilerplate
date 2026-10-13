@@ -24,3 +24,9 @@ class RefreshTokenPublicSchemaPayload(BaseModel):
     """The refresh token public schema payload, to refresh or log out."""
 
     refresh_token: str
+
+
+class IdTokenPublicSchemaPayload(BaseModel):
+    """The ID token public schema payload, as issued by an identity provider."""
+
+    id_token: str

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15, gt=0)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30, gt=0)
 
+    # Google sign-in (disabled when the client id is not set)
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CERTS_URL: str = "https://www.googleapis.com/oauth2/v3/certs"
+
     # Pydantic
     model_config = SettingsConfigDict(env_prefix="FASTAPI_")
 
