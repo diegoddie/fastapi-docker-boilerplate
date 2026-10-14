@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import StringConstraints, field_validator
 
-from app.commons.schemas import BasePublicSchema, UTCAwareDatetime
+from app.commons.schemas import BasePublicSchema, UTCAwareDatetime, reject_null
 from app.users.constants import NAME_MAX_LENGTH
 from app.users.enums import Group
 from app.users.models import BaseUser
@@ -36,21 +36,12 @@ class UserPublicSchemaResponse(BaseUser, BasePublicSchema):
     datetime_created: datetime
 
 
-def reject_null(value: object) -> object:
-    """Reject an explicit null: omit the field instead to leave it unchanged."""
-    if value is None:
-        raise ValueError("Field cannot be null")
-    return value
-
-
 class UserMePublicSchemaUpdate(BasePublicSchema):
     """The user public schema update for the current user's own profile."""
 
     first_name: FirstName | None = None
     last_name: LastName | None = None
 
-    # Why: `None` here means "not sent" (PATCH semantics); these columns are not
-    # nullable, so an explicit null is a client error, not a database error.
     _not_null = field_validator("first_name", "last_name", mode="before")(reject_null)
 
 

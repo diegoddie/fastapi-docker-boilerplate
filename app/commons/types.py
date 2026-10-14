@@ -1,8 +1,10 @@
 """The commons package types."""
 
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import DateTime
+from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.types import TypeDecorator
 
@@ -34,3 +36,17 @@ class UTCDateTime(TypeDecorator[datetime]):
     ) -> datetime | None:
         """Return the stored instant as an aware UTC datetime."""
         return value if value is None else value.astimezone(UTC)
+
+
+def pg_enum(enum: type[StrEnum]) -> ENUM:
+    """
+    Return a Postgres enum type that stores the values of a ``StrEnum``.
+
+    Why: by default SQLAlchemy stores the member names ("IN_PROGRESS"), so the
+    database would hold values different from the ones the API and the code use.
+    """
+    return ENUM(
+        enum,
+        name=enum.__name__.lower(),
+        values_callable=lambda members: [member.value for member in members],
+    )
