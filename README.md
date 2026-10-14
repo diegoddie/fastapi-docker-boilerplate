@@ -25,12 +25,13 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **UTC-only datetimes**: a custom column type rejects naive datetimes at the database boundary
 - **Alembic migrations** with a constraint naming convention and date-prefixed revisions, applied automatically when the container starts and safe with several replicas (advisory lock)
 - **Health checks**: `/api/health/` for liveness and `/api/ready/` for readiness (database reachable)
+- **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, included in `500` responses and attached to Sentry events
 - **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
 - **Quality gates**: ruff with an extended rule set, mypy in strict mode, bandit, and **100% branch coverage** enforced
 - **Realistic tests**: a real PostgreSQL database where every test is rolled back, factories, named personas, full-response snapshots, and a guard test that fails if a route is left without authentication
 - **CI on GitHub Actions** running the very same test image (with cached Docker layers), a vulnerability scan of every locked dependency (`pip-audit`), Dependabot for updates
 - **Documented decisions**: an architecture overview with diagrams, architecture decision records, and a `CLAUDE.md` plus a `new-domain-app` skill so that code generated with Claude Code follows the same conventions
-- **Developer experience**: `uv` for dependencies, `just` for every task, pre-commit hooks pinned to `uv.lock`, a Typer management CLI
+- **Developer experience**: `uv` for dependencies, `just` for every task, pre-commit hooks pinned to `uv.lock`, a Typer management CLI with demo data (`seed`) and an async IPython `shell`
 
 ## Tech stack
 
@@ -46,7 +47,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 | Quality | ruff, mypy (strict), bandit, pre-commit |
 | Testing | pytest, pytest-asyncio, pytest-cov, pytest-mock, pytest-xdist, polyfactory, inline-snapshot, dirty-equals |
 | Tooling | uv, just, Docker, Docker Compose, GitHub Actions, Dependabot |
-| Monitoring | Sentry (optional, production only) |
+| Logging and monitoring | structlog, Sentry (optional, production only) |
 
 ## Quickstart
 
@@ -69,6 +70,12 @@ Create the first administrator, then log in from the docs with the **Authorize**
 
 ```bash
 docker compose run --rm backend just manage users createsuperuser
+```
+
+Or fill the database with demo users (Alice admin, Bob member, Carol viewer, with the password you choose) and their todos:
+
+```bash
+docker compose run --rm backend just manage seed
 ```
 
 ## API overview
@@ -176,6 +183,8 @@ Run `just` to list every command. The most used ones:
 | `just migrate-forward` | Apply all pending migrations |
 | `just migrate-backward <revision>` | Roll back to a revision |
 | `just manage users createsuperuser` | Create an administrator |
+| `just manage seed` | Fill a local database with demo users and todos |
+| `just manage shell` | IPython with the settings, a database session and the models loaded (top-level `await`) |
 | `just audit` | Check the locked dependencies for known vulnerabilities |
 | `just upgrade` | Upgrade the dependencies within the pinned ranges |
 
@@ -183,17 +192,17 @@ Run `just` to list every command. The most used ones:
 
 ```
 app/
-├── main.py              # create_app() factory: lifespan, CORS, routers, exception handlers
+├── main.py              # create_app() factory: lifespan, middleware, routers, exception handlers
 ├── api/
 │   ├── router.py        # /api: health and readiness checks + versioned routers
 │   └── v1/router.py     # /api/v1: aggregates the domain routers
-├── core/                # infrastructure: settings, database, exceptions, handlers
+├── core/                # infrastructure: settings, database, exceptions, handlers, logs, middleware
 ├── commons/             # shared building blocks: base model, UTCDateTime, pagination
 ├── auth/                # login, tokens, security primitives, auth dependencies
 ├── users/               # users domain: models, schemas, services, router, commands
 ├── todos/               # example domain: the reference for new features
 ├── filters/             # FilterBase: declarative filters, search and ordering
-├── cli/                 # Typer management CLI
+├── cli/                 # Typer management CLI: seed, shell
 └── migrations/          # Alembic environment and revisions
 tests/
 ├── conftest.py          # app, client and database fixtures (rolled back after each test)
@@ -228,6 +237,7 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **Every request reads the user.** Disabling a user takes effect immediately, even while their access token is still valid; permissions are computed from the groups on every request, so changing a group needs no new login.
 - **Access rules live in one place.** Each service has a `get_where_clause(user)` used by every query, so a list, a detail, an update and a delete can never disagree on what a user may reach.
 - **Soft delete.** Deleting sets `datetime_disabled`: the row is kept (audit, recovery) but hidden from the API.
+- **Logs are data.** Every line is an event with fields, rendered as JSON in production, whatever library wrote it. A request id ties together the lines of a request, its response and its Sentry event, and the user id says who made it; the request line never contains bodies, query strings or IP addresses.
 - **Exports are safe to open.** CSV cells starting with `=`, `+`, `-`, `@` are prefixed with a quote, so a spreadsheet never runs them as formulas.
 - **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
@@ -255,6 +265,8 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_DOCS_ENABLED` | `true` only when `FASTAPI_ENVIRONMENT=local` | Serve the Swagger UI and the OpenAPI schema |
 | `FASTAPI_DOCS_PATH` | `docs` | Swagger UI path |
 | `FASTAPI_OPENAPI_PATH` | `openapi.json` | OpenAPI schema path |
+| `FASTAPI_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
+| `FASTAPI_LOG_FORMAT` | `console` when `FASTAPI_ENVIRONMENT=local`, `json` otherwise | How log lines are rendered |
 | `FASTAPI_DATABASE_POOL_SIZE` | `5` | Connection pool size |
 | `FASTAPI_DATABASE_MAX_OVERFLOW` | `10` | Extra connections allowed above the pool size |
 | `FASTAPI_SECRET_KEY` | — (required, at least 32 characters) | Signs the access tokens; generate one with `openssl rand -hex 32` |
@@ -289,7 +301,7 @@ Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND
 - [x] Sign in with Google
 - [x] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
 - [x] Architecture documentation, ADRs, Claude Code conventions, CI vulnerability scan and Docker cache
-- [ ] JSON logs with request id, more management commands
+- [x] Structured JSON logs with a request id, `seed` and `shell` management commands
 - [ ] Copier template with optional modules (authentication, background jobs, Sentry) and the `v2.0.0` release
 
 ## License

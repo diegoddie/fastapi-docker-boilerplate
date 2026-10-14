@@ -36,6 +36,18 @@ def test_settings_docs_urls_disabled() -> None:
     assert settings.OPENAPI_URL is None
 
 
+def test_settings_log_format_by_environment() -> None:
+    """Test logs are JSON by default only in remote environments."""
+    assert Settings(ENVIRONMENT="local").log_format == "console"
+    assert Settings(ENVIRONMENT="remote").log_format == "json"
+
+
+def test_settings_log_format_explicitly() -> None:
+    """Test the log format setting overrides the environment default."""
+    assert Settings(ENVIRONMENT="local", LOG_FORMAT="json").log_format == "json"
+    assert Settings(ENVIRONMENT="remote", LOG_FORMAT="console").log_format == "console"
+
+
 def test_settings_version() -> None:
     """Test the version is read from pyproject.toml."""
     with (PROJECT_ROOT / "pyproject.toml").open("rb") as file:

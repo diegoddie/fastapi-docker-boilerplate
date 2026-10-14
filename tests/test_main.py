@@ -53,3 +53,17 @@ async def test_create_app_cors() -> None:
         )
     assert response.status_code == status.HTTP_200_OK
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_create_app_cors_exposes_request_id() -> None:
+    """Test browsers let the frontend read the request id of a response."""
+    application = create_app(Settings(CORS_ALLOWED_ORIGINS=["http://localhost:3000"]))
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://localhost"
+    ) as client:
+        response = await client.get(
+            "/api/health/", headers={"Origin": "http://localhost:3000"}
+        )
+    assert response.headers["access-control-expose-headers"] == "X-Request-ID"
+    assert "X-Request-ID" in response.headers

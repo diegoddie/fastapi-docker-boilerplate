@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import Annotated
 from uuid import UUID
 
+import structlog
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 
@@ -45,6 +46,8 @@ async def get_current_user(
     user = await session.get(User, user_id)
     if user is None or not user.is_active:
         raise _invalid_access_token()
+    # Why: from here on, every log line of the request says who made it.
+    structlog.contextvars.bind_contextvars(user_id=str(user.id))
     return user
 
 
