@@ -2,6 +2,13 @@
 
 import pytest
 
+from app.todos.constants import (
+    CAN_CREATE_TODO,
+    CAN_DELETE_TODO,
+    CAN_EDIT_TODO,
+    CAN_MANAGE_ALL_TODOS,
+    CAN_VIEW_TODO,
+)
 from app.users.constants import CAN_DISABLE_USER, CAN_EDIT_USER, CAN_VIEW_USER
 from app.users.enums import Group
 from app.users.models import User
@@ -10,12 +17,31 @@ from app.users.models import User
 @pytest.mark.parametrize(
     ("groups", "permissions"),
     [
-        ([Group.ADMIN], {CAN_VIEW_USER, CAN_EDIT_USER, CAN_DISABLE_USER}),
-        ([Group.MEMBER], set()),
-        ([Group.VIEWER], set()),
+        (
+            [Group.ADMIN],
+            {
+                CAN_VIEW_USER,
+                CAN_EDIT_USER,
+                CAN_DISABLE_USER,
+                CAN_CREATE_TODO,
+                CAN_VIEW_TODO,
+                CAN_EDIT_TODO,
+                CAN_DELETE_TODO,
+                CAN_MANAGE_ALL_TODOS,
+            },
+        ),
+        (
+            [Group.MEMBER],
+            {CAN_CREATE_TODO, CAN_VIEW_TODO, CAN_EDIT_TODO, CAN_DELETE_TODO},
+        ),
+        ([Group.VIEWER], {CAN_VIEW_TODO}),
+        (
+            [Group.VIEWER, Group.MEMBER],
+            {CAN_CREATE_TODO, CAN_VIEW_TODO, CAN_EDIT_TODO, CAN_DELETE_TODO},
+        ),
         ([], set()),
     ],
-    ids=["admin", "member", "viewer", "no_groups"],
+    ids=["admin", "member", "viewer", "several_groups", "no_groups"],
 )
 def test_user_permissions(groups: list[str], permissions: set[str]) -> None:
     """Test a user has the union of the permissions of their groups."""

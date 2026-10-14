@@ -19,6 +19,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **Authentication**: open registration, email + password login (argon2), **Sign in with Google**, short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection and real logout; the Swagger UI "Authorize" button works out of the box
 - **Permissions**: users belong to groups, groups grant permissions, and routes declare the permission they need (`require_any_permissions`)
 - **Users API**: profile (`me`), and paginated user management for administrators
+- **Example domain (`todos`)**: the reference to copy for new features, with CRUD, permissions per action, per-owner visibility, filters, search, ordering, pagination, soft delete and a CSV export safe from formula injection
 - **Typed configuration** with pydantic-settings, all variables prefixed with `FASTAPI_`
 - **Consistent errors**: every error (including 404, 405, validation errors and unexpected 500s) has the same shape with a machine-readable `errorCode`; database integrity errors become `409` / `422` responses automatically, without leaking database details
 - **UTC-only datetimes**: a custom column type rejects naive datetimes at the database boundary
@@ -83,6 +84,12 @@ docker compose run --rm backend just manage users createsuperuser
 | `GET` | `/api/v1/users/user/{id}/` | `can_view_user` | User detail |
 | `PATCH` | `/api/v1/users/user/{id}/` | `can_edit_user` | Change names, groups, or (re)activate a user |
 | `DELETE` | `/api/v1/users/user/{id}/` | `can_disable_user` | Disable a user and end all their sessions |
+| `POST` | `/api/v1/todos/todo/` | `can_create_todo` | Create a todo (owned by you) |
+| `GET` | `/api/v1/todos/todo/` | `can_view_todo` | List todos (paginated, with filters) |
+| `GET` | `/api/v1/todos/todo/download/` | `can_view_todo` | Download the filtered todos as CSV |
+| `GET` | `/api/v1/todos/todo/{id}/` | `can_view_todo` | Todo detail |
+| `PATCH` | `/api/v1/todos/todo/{id}/` | `can_edit_todo` | Update a todo |
+| `DELETE` | `/api/v1/todos/todo/{id}/` | `can_delete_todo` | Delete a todo (soft delete) |
 | `GET` | `/api/health/`, `/api/ready/` | public | Liveness and readiness checks |
 
 ## Sign in with Google
@@ -104,7 +111,29 @@ Without a client id, Google sign-in answers `404` with `errorCode: GOOGLE_SIGN_I
 
 ## Groups and permissions
 
-Groups and the permissions they grant are defined in `app/users/constants.py`: `admin` has every user permission, `member` and `viewer` will get the permissions of the example domain.
+Users belong to groups; each group grants a set of permissions (`GROUPS` in `app/users/constants.py`); each route declares the permission it needs.
+
+| Group | Permissions |
+|---|---|
+| `admin` | every permission, including `can_manage_all_todos`: sees and changes everyone's todos |
+| `member` (default on registration) | create, view, edit and delete **their own** todos |
+| `viewer` | view their own todos (read-only) |
+
+A todo owned by someone else answers `404`, not `403`: the API never reveals that it exists.
+
+## Lists: filters, search, ordering
+
+List endpoints take their filters as query parameters, declared once in a `FilterBase` subclass (see `TodoFilter` in `app/todos/schemas.py`) and reused by the CSV export:
+
+| Parameter | Example | Meaning |
+|---|---|---|
+| `<field>` | `?status=done` | equal to |
+| `<field>__in` | `?priority__in=high&priority__in=low` | one of |
+| `<field>__gte` / `<field>__lte` | `?due_date__lte=2026-12-31` | greater / less than or equal to |
+| `<field>__is_null` | `?due_date__is_null=true` | missing (or present, with `false`) |
+| `search` | `?search=report` | case-insensitive match on the search fields (`%` and `_` match literally) |
+| `order_by` | `?order_by=-priority,title` | sortable fields, `-` for descending; anything else is a `422` |
+| `page`, `size` | `?page=2&size=20` | pagination (size up to 100) |
 
 ## Development
 
@@ -160,6 +189,8 @@ app/
 ├── commons/             # shared building blocks: base model, UTCDateTime, pagination
 ├── auth/                # login, tokens, security primitives, auth dependencies
 ├── users/               # users domain: models, schemas, services, router, commands
+├── todos/               # example domain: the reference for new features
+├── filters/             # FilterBase: declarative filters, search and ordering
 ├── cli/                 # Typer management CLI
 └── migrations/          # Alembic environment and revisions
 tests/
@@ -170,7 +201,15 @@ tests/
 scripts/                 # entrypoint, check, test and coverage scripts
 ```
 
-New features live in their own **domain package** (`app/<domain>/` with `models.py`, `schemas.py`, `services.py` and `router.py`). Their routers are mounted in `app/api/v1/router.py`, and their tests go in `tests/<domain>/`.
+## Adding a feature
+
+New features live in their own **domain package**; `app/todos/` is the one to copy:
+
+1. `app/<domain>/`: `constants.py` (permissions, lengths), `enums.py`, `models.py` (a `BaseXxx` shared with the schemas + the table model), `schemas.py` (`XxxPublicSchemaCreate` / `Update` / `Response`, CSV schema, filter), `services.py` (a class of static methods, with the access rules in `get_where_clause`), `router.py` (`<action>_<resource>_route` handlers).
+2. Register the model in `app/core/models.py` and the router in `app/api/v1/router.py`.
+3. Grant the new permissions to the groups in `app/users/constants.py`.
+4. Create the migration with `just forge "add <domain> table"` and review it.
+5. Tests: a factory in `tests/factories/`, the fixtures (with fixed ids) in `tests/pytest_plugins/<domain>.py`, and `tests/<domain>/test_router.py` with one test per route and status code (`test_<action>_<resource>_route_<status>`), URLs written in full.
 
 ## Design decisions
 
@@ -179,6 +218,10 @@ New features live in their own **domain package** (`app/<domain>/` with `models.
 - **One app factory.** `create_app()` builds the application for production and for the tests alike, so what is tested is what runs.
 - **Refresh tokens live in the database.** Access tokens are short-lived JWTs (15 minutes) carrying only the user id. Refresh tokens are random strings stored as SHA-256 hashes: every refresh revokes the token and issues a new one in the same family, presenting a revoked token ends the whole family (stolen token detection), and logout really ends the session.
 - **Every request reads the user.** Disabling a user takes effect immediately, even while their access token is still valid; permissions are computed from the groups on every request, so changing a group needs no new login.
+- **Access rules live in one place.** Each service has a `get_where_clause(user)` used by every query, so a list, a detail, an update and a delete can never disagree on what a user may reach.
+- **Soft delete.** Deleting sets `datetime_disabled`: the row is kept (audit, recovery) but hidden from the API.
+- **Exports are safe to open.** CSV cells starting with `=`, `+`, `-`, `@` are prefixed with a quote, so a spreadsheet never runs them as formulas.
+- **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
 - **External identities in their own table.** A user can be linked to several external accounts (provider + account id) and still have a password; an account is linked by email only when the provider verified that email, so nobody can take over an account with an unverified address.
 - **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
@@ -236,7 +279,7 @@ Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND
 - [x] Users and JWT authentication: registration, rotating refresh tokens, groups and permissions
 - [x] Database-backed tests: transaction rollback per test, factories, personas, snapshots
 - [x] Sign in with Google
-- [ ] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
+- [x] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
 - [ ] JSON logs with request id, more management commands
 - [ ] Architecture documentation and ADRs
 
