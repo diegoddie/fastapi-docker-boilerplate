@@ -87,19 +87,31 @@ sequenceDiagram
     C->>API: refresh with R1
     API->>DB: revoke R1, store hash(R2) in family F
     API-->>C: new access token + R2
-    Note over C,API: an attacker replays the stolen R1
+    Note over C,API: past the 30 s grace period, an attacker replays R1
     C->>API: refresh with R1 (already revoked)
     API->>DB: revoke the whole family F (R2 too)
     API-->>C: 401 INVALID_REFRESH_TOKEN
 ```
 
+Within 30 seconds of a rotation, the old token is not treated as stolen while
+its session is still open: two tabs, or two requests refreshing together, each
+get a pair ([ADR 0009](adr/0009-refresh-token-reuse-grace-period.md)). Revoked
+tokens are kept until they expire, since they are what detects a replay;
+`just manage auth purge-tokens` deletes the expired ones.
+
 Every request reads the user from the database, so disabling a user takes
 effect immediately, and permissions are always computed from the current groups.
 Services depend on the `PasswordHasher`, `AccessTokenCodec` and
-`IdentityProvider` protocols, not on argon2, JWT or Google directly.
+`IdentityProvider` protocols, not on argon2, JWT or Google directly. The hasher
+is async: argon2 costs ~150 ms of CPU by design, so it runs in a worker thread
+and a login never stalls the other requests.
 
-Google sign-in creates a member on the first login, or links the Google account
-to the user with the same email **only if Google verified that email**. The links
+Google sign-in creates a member on the first login. If a user with the same
+email exists, it answers `409 ACCOUNT_EXISTS` and links nothing: the email does
+not prove that the person owns that account (someone else may have registered
+the address first). The user signs in with the password and links Google with
+`POST /api/v1/auth/google/link/`, confirming with the password
+([ADR 0010](adr/0010-external-accounts-are-linked-explicitly.md)). The links
 live in the `externalidentity` table (provider + account id), so a user can have
 several providers.
 
@@ -223,13 +235,13 @@ One Dockerfile, three targets sharing the same base layer:
 
 The entrypoint applies the migrations, then starts the command. `/api/health/`
 answers as long as the process runs (liveness); `/api/ready/` also checks the
-database (readiness). Configuration comes from `FASTAPI_*` environment
+database (readiness); both accept `GET` and `HEAD`. Configuration comes from `FASTAPI_*` environment
 variables; Sentry is enabled when the `remote` dependency group is installed and
 `SENTRY_DSN` is set.
 
 Management commands run with `just manage <command>` (Typer): `seed` fills a
 local database with demo users and todos, `shell` opens IPython with the
 settings, a database session and the models loaded, and each domain adds its
-own (`users createsuperuser`). A command keeps its logic in an
+own (`users createsuperuser`, `auth purge-tokens`, to schedule daily). A command keeps its logic in an
 `execute_<command>()` function tested against the test database, and its Typer
 wrapper thin.

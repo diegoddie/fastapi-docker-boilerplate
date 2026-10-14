@@ -15,36 +15,48 @@ import jwt
 from fastapi import Depends
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 
 
 class PasswordHasher(Protocol):
-    """Hash and verify passwords."""
+    """
+    Hash and verify passwords.
 
-    def hash(self, password: str) -> str:
+    Why: the methods are async because a good password hash is slow on purpose,
+    so an implementation must not run it on the event loop.
+    """
+
+    async def hash(self, password: str) -> str:
         """Return the hash of a password."""
         ...  # pragma: no cover
 
-    def verify(self, password: str, password_hash: str) -> bool:
+    async def verify(self, password: str, password_hash: str) -> bool:
         """Tell if a password matches a hash."""
         ...  # pragma: no cover
 
 
 class Argon2PasswordHasher:
-    """Password hasher based on argon2id, the OWASP recommended algorithm."""
+    """
+    Password hasher based on argon2id, the OWASP recommended algorithm.
+
+    Why: argon2 takes ~150 ms of CPU, during which the event loop could serve no
+    other request; it runs in a worker thread instead, and since argon2 releases
+    the GIL, several hashes run in parallel.
+    """
 
     def __init__(self) -> None:
         """Initialize the instance."""
         self._hasher = PasswordHash((Argon2Hasher(),))
 
-    def hash(self, password: str) -> str:
+    async def hash(self, password: str) -> str:
         """Return the hash of a password."""
-        return self._hasher.hash(password)
+        return await run_in_threadpool(self._hasher.hash, password)
 
-    def verify(self, password: str, password_hash: str) -> bool:
+    async def verify(self, password: str, password_hash: str) -> bool:
         """Tell if a password matches a hash."""
-        return self._hasher.verify(password, password_hash)
+        return await run_in_threadpool(self._hasher.verify, password, password_hash)
 
 
 @dataclass(frozen=True)

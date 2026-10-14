@@ -1,6 +1,6 @@
 # 0002. Refresh tokens stored in the database, with rotation
 
-- Status: Accepted
+- Status: Accepted, amended by [0009](0009-refresh-token-reuse-grace-period.md)
 - Date: 2026-10-09
 
 ## Context

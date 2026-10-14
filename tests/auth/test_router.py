@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.models import RefreshToken
 from app.auth.security import password_hasher
 from app.auth.services import hash_refresh_token
+from app.core.config import settings
 from app.users.models import User
 from tests.factories.users import TEST_PASSWORD, UserFactory
 from tests.utils import AsyncClient
@@ -51,7 +52,7 @@ async def test_register_user_route_201(
     ).one()
     assert user.password_hash is not None
     assert user.password_hash != "a-strong-password"
-    assert password_hasher.verify("a-strong-password", user.password_hash)
+    assert await password_hasher.verify("a-strong-password", user.password_hash)
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -208,16 +209,48 @@ async def test_refresh_token_route_200(
 
 
 @pytest.mark.asyncio(loop_scope="function")
-async def test_refresh_token_route_401_reuse(
+async def test_refresh_token_route_200_concurrent(
     async_client: AsyncClient, bob_member_user: User
 ) -> None:
-    """Test reusing a rotated refresh token ends the whole session."""
+    """Test a token rotated moments ago (e.g. by another tab) still gets a pair."""
     first = await async_client.password_login("bob@example.com")
     second = (
         await async_client.post(
             "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
         )
     ).json()
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
+    )
+    assert response.status_code == status.HTTP_200_OK
+    third = response.json()
+    assert third["refresh_token"] != second["refresh_token"]
+    for tokens in (second, third):
+        response = await async_client.post(
+            "/api/v1/auth/refresh/", json={"refresh_token": tokens["refresh_token"]}
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_refresh_token_route_401_reuse(
+    async_client: AsyncClient, async_db_session: AsyncSession, bob_member_user: User
+) -> None:
+    """Test reusing a token rotated before the grace period ends the session."""
+    first = await async_client.password_login("bob@example.com")
+    second = (
+        await async_client.post(
+            "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
+        )
+    ).json()
+    await async_db_session.exec(
+        update(RefreshToken)
+        .where(col(RefreshToken.datetime_revoked).is_not(None))
+        .values(
+            datetime_revoked=datetime.now(UTC)
+            - timedelta(seconds=settings.REFRESH_TOKEN_REUSE_GRACE_SECONDS + 1)
+        )
+    )
     response = await async_client.post(
         "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
     )
@@ -232,6 +265,26 @@ async def test_refresh_token_route_401_reuse(
     )
     response = await async_client.post(
         "/api/v1/auth/refresh/", json={"refresh_token": second["refresh_token"]}
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_refresh_token_route_401_reuse_after_logout(
+    async_client: AsyncClient, bob_member_user: User
+) -> None:
+    """Test the grace period does not reopen a session that was ended."""
+    first = await async_client.password_login("bob@example.com")
+    second = (
+        await async_client.post(
+            "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
+        )
+    ).json()
+    await async_client.post(
+        "/api/v1/auth/logout/", json={"refresh_token": second["refresh_token"]}
+    )
+    response = await async_client.post(
+        "/api/v1/auth/refresh/", json={"refresh_token": first["refresh_token"]}
     )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 

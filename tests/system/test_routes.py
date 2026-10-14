@@ -24,6 +24,14 @@ async def test_ready_route_200(async_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize("path", ["/api/health/", "/api/ready/"])
+async def test_health_routes_head_200(async_client: AsyncClient, path: str) -> None:
+    """Test uptime monitors can probe the health routes with HEAD."""
+    response = await async_client.head(path)
+    assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio(loop_scope="function")
 async def test_ready_route_503(
     async_client: AsyncClient, db_session_mock: AsyncMockType
 ) -> None:

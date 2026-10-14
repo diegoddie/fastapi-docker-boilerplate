@@ -25,6 +25,7 @@ from app.auth.identity import (
     get_google_identity_provider,
 )
 from app.auth.security import JWTAccessTokenCodec
+from tests.factories.auth import RefreshTokenFactory
 
 
 class FakeIdentityProvider:
@@ -134,3 +135,9 @@ def jwt_access_token_codec() -> JWTAccessTokenCodec:
         algorithm="HS256",
         lifetime=timedelta(minutes=15),
     )
+
+
+@pytest.fixture
+def refresh_token_factory(seed_factories: None) -> type[RefreshTokenFactory]:
+    """Return the refresh token factory, bound to the test database."""
+    return RefreshTokenFactory

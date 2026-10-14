@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: Literal["HS256", "HS384", "HS512"] = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15, gt=0)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30, gt=0)
+    # Why: two tabs, or two requests sent together, refresh with the same token;
+    # for this long after a rotation, the old token is not treated as stolen.
+    REFRESH_TOKEN_REUSE_GRACE_SECONDS: int = Field(default=30, ge=0)
 
     # Google sign-in (disabled when the client id is not set)
     GOOGLE_CLIENT_ID: str | None = None

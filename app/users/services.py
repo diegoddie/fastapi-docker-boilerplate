@@ -50,7 +50,10 @@ class UserService:
         """Create a user with a password (a duplicate email is a 409)."""
         user = User.model_validate(
             payload.model_dump(exclude={"password"})
-            | {"password_hash": hasher.hash(payload.password), "groups": list(groups)}
+            | {
+                "password_hash": await hasher.hash(payload.password),
+                "groups": list(groups),
+            }
         )
         session.add(user)
         try:

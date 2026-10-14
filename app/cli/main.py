@@ -8,6 +8,7 @@ Run it with ``just manage <command>``, e.g. ``just manage seed`` or
 import typer
 
 import app.core.models  # noqa: F401  # side-effect: register every model
+from app.auth.commands import app as auth_commands
 from app.cli.seed import seed
 from app.cli.shell import shell
 from app.core.config import settings
@@ -19,6 +20,7 @@ configure_logging(settings)
 cli = typer.Typer(help="Management commands.", no_args_is_help=True)
 cli.command()(seed)
 cli.command()(shell)
+cli.add_typer(auth_commands, name="auth")
 cli.add_typer(users_commands, name="users")
 
 if __name__ == "__main__":  # pragma: no cover

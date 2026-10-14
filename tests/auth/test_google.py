@@ -16,7 +16,7 @@ from app.auth.identity import (
 from app.auth.models import ExternalIdentity
 from app.core.config import settings
 from app.users.models import User
-from tests.factories.users import TEST_PASSWORD_HASH
+from tests.factories.users import TEST_PASSWORD, TEST_PASSWORD_HASH, UserFactory
 from tests.pytest_plugins.auth import FakeIdentityProvider
 from tests.utils import AsyncClient
 
@@ -82,28 +82,37 @@ async def test_login_google_user_route_200_returning_user(
 
 
 @pytest.mark.asyncio(loop_scope="function")
-async def test_login_google_user_route_200_links_existing_account(
+@pytest.mark.parametrize(
+    "email", ["Bob@Example.com", "dave@example.com"], ids=["active", "disabled"]
+)
+async def test_login_google_user_route_409_existing_account(
     async_client: AsyncClient,
     async_db_session: AsyncSession,
     google_identity_provider: FakeIdentityProvider,
     bob_member_user: User,
+    dave_disabled_user: User,
+    email: str,
 ) -> None:
-    """Test a verified Google email is linked to the account with that email."""
+    """Test a Google account is never linked by email to an existing account."""
     google_identity_provider.claims = replace(
-        google_identity_provider.claims, email="Bob@Example.com"
+        google_identity_provider.claims, email=email
     )
-    tokens = await async_client.google_login()
-    response = await async_client.get(
-        "/api/v1/users/user/me/",
-        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    response = await async_client.post(
+        "/api/v1/auth/google/", json={"id_token": "google-id-token"}
     )
-    assert response.json()["id"] == str(bob_member_user.id)
-    async_db_session.expunge_all()
-    identity = (await async_db_session.exec(select(ExternalIdentity))).one()
-    assert identity.user_id == bob_member_user.id
-    user = await async_db_session.get(User, bob_member_user.id)
-    assert user is not None
-    assert user.password_hash == TEST_PASSWORD_HASH
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == snapshot(
+        {
+            "detail": {
+                "message": (
+                    "An account with this email already exists: "
+                    "sign in with its password, then link this account."
+                ),
+                "errorCode": "ACCOUNT_EXISTS",
+            }
+        }
+    )
+    assert (await async_db_session.exec(select(ExternalIdentity))).all() == []
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -129,25 +138,6 @@ async def test_login_google_user_route_401_email_not_verified(
             }
         }
     )
-    assert (await async_db_session.exec(select(ExternalIdentity))).all() == []
-
-
-@pytest.mark.asyncio(loop_scope="function")
-async def test_login_google_user_route_401_disabled_user(
-    async_client: AsyncClient,
-    async_db_session: AsyncSession,
-    google_identity_provider: FakeIdentityProvider,
-    dave_disabled_user: User,
-) -> None:
-    """Test a disabled account cannot sign in, nor gets a Google link."""
-    google_identity_provider.claims = replace(
-        google_identity_provider.claims, email="dave@example.com"
-    )
-    response = await async_client.post(
-        "/api/v1/auth/google/", json={"id_token": "google-id-token"}
-    )
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json()["detail"]["errorCode"] == "INVALID_CREDENTIALS"
     assert (await async_db_session.exec(select(ExternalIdentity))).all() == []
 
 
@@ -214,6 +204,114 @@ async def test_login_google_user_route_404_disabled(
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"]["errorCode"] == "GOOGLE_SIGN_IN_DISABLED"
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_link_google_account_route_204(
+    async_client: AsyncClient,
+    google_identity_provider: FakeIdentityProvider,
+    bob_member_user: User,
+) -> None:
+    """Test a user links a Google account, then signs in with it."""
+    async_client.login(bob_member_user)
+    response = await async_client.post(
+        "/api/v1/auth/google/link/",
+        json={"id_token": "google-id-token", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    async_client.logout()
+    tokens = await async_client.google_login()
+    response = await async_client.get(
+        "/api/v1/users/user/me/",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    assert response.json()["id"] == str(bob_member_user.id)
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_link_google_account_route_204_already_linked(
+    async_client: AsyncClient,
+    async_db_session: AsyncSession,
+    google_identity_provider: FakeIdentityProvider,
+    bob_member_user: User,
+) -> None:
+    """Test linking the same Google account twice changes nothing."""
+    async_client.login(bob_member_user)
+    for _ in range(2):
+        response = await async_client.post(
+            "/api/v1/auth/google/link/",
+            json={"id_token": "google-id-token", "password": TEST_PASSWORD},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+    identity = (await async_db_session.exec(select(ExternalIdentity))).one()
+    assert identity.user_id == bob_member_user.id
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_link_google_account_route_401(async_client: AsyncClient) -> None:
+    """Test only an authenticated user can link a Google account."""
+    response = await async_client.post(
+        "/api/v1/auth/google/link/",
+        json={"id_token": "google-id-token", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize(
+    ("password_hash", "password"),
+    [(TEST_PASSWORD_HASH, "a-wrong-password"), (None, TEST_PASSWORD)],
+    ids=["wrong_password", "no_password"],
+)
+async def test_link_google_account_route_403(
+    async_client: AsyncClient,
+    async_db_session: AsyncSession,
+    google_identity_provider: FakeIdentityProvider,
+    user_factory: type[UserFactory],
+    password_hash: str | None,
+    password: str,
+) -> None:
+    """Test linking needs the password: an access token alone is not enough."""
+    user = await user_factory.create_async(password_hash=password_hash)
+    async_client.login(user)
+    response = await async_client.post(
+        "/api/v1/auth/google/link/",
+        json={"id_token": "google-id-token", "password": password},
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == snapshot(
+        {
+            "detail": {
+                "message": "The password is not correct.",
+                "errorCode": "INVALID_PASSWORD",
+            }
+        }
+    )
+    assert (await async_db_session.exec(select(ExternalIdentity))).all() == []
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_link_google_account_route_409(
+    async_client: AsyncClient,
+    google_identity_provider: FakeIdentityProvider,
+    bob_member_user: User,
+) -> None:
+    """Test a Google account linked to a user cannot be linked to another one."""
+    await async_client.google_login()
+    async_client.login(bob_member_user)
+    response = await async_client.post(
+        "/api/v1/auth/google/link/",
+        json={"id_token": "google-id-token", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == snapshot(
+        {
+            "detail": {
+                "message": "The external account is linked to another user.",
+                "errorCode": "EXTERNAL_ACCOUNT_IN_USE",
+            }
+        }
+    )
 
 
 @pytest.mark.asyncio(loop_scope="function")

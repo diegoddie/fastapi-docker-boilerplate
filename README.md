@@ -16,7 +16,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 ## Features
 
 - **Async all the way**: FastAPI + SQLModel/SQLAlchemy 2 async sessions on PostgreSQL (psycopg 3)
-- **Authentication**: open registration, email + password login (argon2), **Sign in with Google**, short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection and real logout; the Swagger UI "Authorize" button works out of the box
+- **Authentication**: open registration, email + password login (argon2, hashed off the event loop), **Sign in with Google** with accounts linked explicitly (never by email), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection that tolerates concurrent refreshes, real logout and a purge command; the Swagger UI "Authorize" button works out of the box
 - **Permissions**: users belong to groups, groups grant permissions, and routes declare the permission they need (`require_any_permissions`)
 - **Users API**: profile (`me`), and paginated user management for administrators
 - **Example domain (`todos`)**: the reference to copy for new features, with CRUD, permissions per action, per-owner visibility, filters, search, ordering, pagination, soft delete and a CSV export safe from formula injection
@@ -87,6 +87,7 @@ docker compose run --rm backend just manage seed
 | `POST` | `/api/v1/auth/refresh/` | public | Exchange a refresh token for a new pair (rotation) |
 | `POST` | `/api/v1/auth/logout/` | public | Revoke the session of a refresh token |
 | `POST` | `/api/v1/auth/google/` | public | Sign in with a Google ID token and get a token pair |
+| `POST` | `/api/v1/auth/google/link/` | authenticated | Link a Google account to your user (password required) |
 | `GET` / `PATCH` | `/api/v1/users/user/me/` | authenticated | Read or update your own profile |
 | `GET` | `/api/v1/users/user/` | `can_view_user` | List users (paginated) |
 | `GET` | `/api/v1/users/user/{id}/` | `can_view_user` | User detail |
@@ -98,14 +99,14 @@ docker compose run --rm backend just manage seed
 | `GET` | `/api/v1/todos/todo/{id}/` | `can_view_todo` | Todo detail |
 | `PATCH` | `/api/v1/todos/todo/{id}/` | `can_edit_todo` | Update a todo |
 | `DELETE` | `/api/v1/todos/todo/{id}/` | `can_delete_todo` | Delete a todo (soft delete) |
-| `GET` | `/api/health/`, `/api/ready/` | public | Liveness and readiness checks |
+| `GET` / `HEAD` | `/api/health/`, `/api/ready/` | public | Liveness and readiness checks |
 
 ## Sign in with Google
 
 The frontend shows Google's "Sign in with Google" button, receives an **ID token** from Google and sends it to `POST /api/v1/auth/google/` as `{"id_token": "..."}`. The backend verifies the token (Google's signature, issuer, audience, expiry) and answers with the same token pair as the password login:
 
-- the first sign-in creates a `member` without a password;
-- if an account with the same email exists, it is linked, but only when Google has verified the email;
+- the first sign-in creates a `member` without a password, if Google verified the email;
+- if an account with the same email already exists, the sign-in answers `409` with `errorCode: ACCOUNT_EXISTS` and links nothing, because the email does not prove that the person owns that account (someone may have registered the address first, or the address may have changed hands). The user signs in with the password, and the frontend links the Google account with `POST /api/v1/auth/google/link/`, sending `{"id_token": "...", "password": "..."}`;
 - the next sign-ins find the user through the Google account id, even if the email changes.
 
 To enable it:
@@ -185,8 +186,11 @@ Run `just` to list every command. The most used ones:
 | `just manage users createsuperuser` | Create an administrator |
 | `just manage seed` | Fill a local database with demo users and todos |
 | `just manage shell` | IPython with the settings, a database session and the models loaded (top-level `await`) |
+| `just manage auth purge-tokens` | Delete the expired refresh tokens |
 | `just audit` | Check the locked dependencies for known vulnerabilities |
 | `just upgrade` | Upgrade the dependencies within the pinned ranges |
+
+In production, schedule `auth purge-tokens` once a day, e.g. as a Kubernetes CronJob or a cron entry. The `remote` image has no `just`, so run the module directly: `docker compose run --rm backend python -m app.cli.main auth purge-tokens`.
 
 ## Project structure
 
@@ -233,7 +237,7 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **The database is the source of truth for integrity.** Uniqueness and foreign keys are database constraints. Services simply commit, and a single exception handler turns violations into `409 Conflict` or `422 Unprocessable Content`.
 - **Errors are meant for machines too.** Every error response looks like `{"detail": {"message": "...", "errorCode": "NOT_FOUND"}}`, so clients can branch on a stable code instead of parsing messages. Validation errors add an `errors` list (`field`, `message`, `type`) and never echo the submitted values, which may contain passwords or personal data.
 - **One app factory.** `create_app()` builds the application for production and for the tests alike, so what is tested is what runs.
-- **Refresh tokens live in the database.** Access tokens are short-lived JWTs (15 minutes) carrying only the user id. Refresh tokens are random strings stored as SHA-256 hashes: every refresh revokes the token and issues a new one in the same family, presenting a revoked token ends the whole family (stolen token detection), and logout really ends the session.
+- **Refresh tokens live in the database.** Access tokens are short-lived JWTs (15 minutes) carrying only the user id. Refresh tokens are random strings stored as SHA-256 hashes: every refresh revokes the token and issues a new one in the same family, presenting a revoked token ends the whole family (stolen token detection), and logout really ends the session. A token rotated less than 30 seconds earlier still works while its session is open, so two tabs refreshing together do not log the user out.
 - **Every request reads the user.** Disabling a user takes effect immediately, even while their access token is still valid; permissions are computed from the groups on every request, so changing a group needs no new login.
 - **Access rules live in one place.** Each service has a `get_where_clause(user)` used by every query, so a list, a detail, an update and a delete can never disagree on what a user may reach.
 - **Soft delete.** Deleting sets `datetime_disabled`: the row is kept (audit, recovery) but hidden from the API.
@@ -241,7 +245,8 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **Exports are safe to open.** CSV cells starting with `=`, `+`, `-`, `@` are prefixed with a quote, so a spreadsheet never runs them as formulas.
 - **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
-- **External identities in their own table.** A user can be linked to several external accounts (provider + account id) and still have a password; an account is linked by email only when the provider verified that email, so nobody can take over an account with an unverified address.
+- **External identities in their own table, linked explicitly.** A user can be linked to several external accounts (provider + account id) and still have a password. An external account is never linked by email: linking needs a signed-in user and their password, so neither whoever registered an address first nor a former owner of the address can get into the account.
+- **Slow on purpose, but not blocking.** Argon2 costs ~150 ms of CPU per password, by design; the password hasher is async and runs it in a worker thread, so logins do not stall the other requests.
 - **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
 - **OAuth 2.0 where it matters.** The token endpoints use the snake_case fields of RFC 6749 (`access_token`, `refresh_token`…), which Swagger UI and OAuth client libraries expect; the rest of the API is camelCase.
 - **Tests guard the API surface.** A test reads the OpenAPI schema and fails if any route outside an explicit list of public paths lacks authentication.
@@ -273,6 +278,7 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_JWT_ALGORITHM` | `HS256` | `HS256`, `HS384` or `HS512` |
 | `FASTAPI_ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access token lifetime |
 | `FASTAPI_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
+| `FASTAPI_REFRESH_TOKEN_REUSE_GRACE_SECONDS` | `30` | How long a rotated refresh token still works (concurrent refreshes); `0` disables it |
 | `FASTAPI_GOOGLE_CLIENT_ID` | — | OAuth client id that enables Sign in with Google |
 | `FASTAPI_GOOGLE_CERTS_URL` | Google's public keys URL | Where Google's signing keys are fetched from |
 | `SENTRY_DSN` | — | Enables Sentry in the `remote` image |
