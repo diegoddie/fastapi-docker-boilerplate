@@ -28,7 +28,8 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
 - **Quality gates**: ruff with an extended rule set, mypy in strict mode, bandit, and **100% branch coverage** enforced
 - **Realistic tests**: a real PostgreSQL database where every test is rolled back, factories, named personas, full-response snapshots, and a guard test that fails if a route is left without authentication
-- **CI on GitHub Actions** running the very same test image, Dependabot for dependency updates
+- **CI on GitHub Actions** running the very same test image (with cached Docker layers), a vulnerability scan of every locked dependency (`pip-audit`), Dependabot for updates
+- **Documented decisions**: an architecture overview with diagrams, architecture decision records, and a `CLAUDE.md` plus a `new-domain-app` skill so that code generated with Claude Code follows the same conventions
 - **Developer experience**: `uv` for dependencies, `just` for every task, pre-commit hooks pinned to `uv.lock`, a Typer management CLI
 
 ## Tech stack
@@ -175,6 +176,7 @@ Run `just` to list every command. The most used ones:
 | `just migrate-forward` | Apply all pending migrations |
 | `just migrate-backward <revision>` | Roll back to a revision |
 | `just manage users createsuperuser` | Create an administrator |
+| `just audit` | Check the locked dependencies for known vulnerabilities |
 | `just upgrade` | Upgrade the dependencies within the pinned ranges |
 
 ## Project structure
@@ -210,6 +212,12 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 3. Grant the new permissions to the groups in `app/users/constants.py`.
 4. Create the migration with `just forge "add <domain> table"` and review it.
 5. Tests: a factory in `tests/factories/`, the fixtures (with fixed ids) in `tests/pytest_plugins/<domain>.py`, and `tests/<domain>/test_router.py` with one test per route and status code (`test_<action>_<resource>_route_<status>`), URLs written in full.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): layers, request lifecycle, authentication and authorization flows, data, errors, testing, runtime
+- [Architecture decision records](docs/adr/README.md): why the main choices were made, and what was discarded
+- [CLAUDE.md](CLAUDE.md): the conventions in a form Claude Code follows; the [`new-domain-app`](.claude/skills/new-domain-app/SKILL.md) skill adds a domain step by step (ask Claude Code to "add an invoices domain")
 
 ## Design decisions
 
@@ -280,8 +288,9 @@ Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND
 - [x] Database-backed tests: transaction rollback per test, factories, personas, snapshots
 - [x] Sign in with Google
 - [x] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
+- [x] Architecture documentation, ADRs, Claude Code conventions, CI vulnerability scan and Docker cache
 - [ ] JSON logs with request id, more management commands
-- [ ] Architecture documentation and ADRs
+- [ ] Copier template with optional modules (authentication, background jobs, Sentry) and the `v2.0.0` release
 
 ## License
 

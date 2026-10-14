@@ -1,0 +1,187 @@
+# Architecture
+
+This document explains how the backend is organized and how a request flows
+through it. The reasons behind the main choices are recorded as
+[architecture decision records](adr/README.md).
+
+## Overview
+
+The code is split by **business domain** (`auth`, `users`, `todos`), and each
+domain by **layer**:
+
+```mermaid
+flowchart LR
+    client([Client]) --> router["router.py<br/>HTTP: paths, status codes,<br/>permissions, schemas"]
+    router --> service["services.py<br/>business rules,<br/>access rules, transactions"]
+    service --> model["models.py<br/>tables and constraints"]
+    model --> db[(PostgreSQL)]
+    router -. validates with .-> schemas["schemas.py<br/>request and response bodies"]
+```
+
+- **Routers** are thin: they declare the HTTP contract (path, status code,
+  response schema, required permission) and call one service method.
+- **Services** hold the business logic: they are classes of static methods that
+  receive the session, the current user and any collaborator as arguments, apply
+  the access rules and own the transaction (`commit`).
+- **Models** describe the tables. Each model has a `Base<Model>` class with the
+  fields shared with the API schemas, so a field is declared once.
+
+| Package | Responsibility |
+|---|---|
+| `app/core` | settings, database session, exceptions and their handlers, model registry |
+| `app/commons` | base model (uuid7 id, timestamps, soft delete), column types, base schemas, pagination, CSV export |
+| `app/filters` | `FilterBase`: declarative filters, search and ordering for list endpoints |
+| `app/auth` | login, access and refresh tokens, Google sign-in, authentication and permission dependencies |
+| `app/users` | users, groups and the permissions they grant, profile and administration |
+| `app/todos` | the example domain: the reference to copy for new features |
+| `app/cli` | Typer management commands |
+| `app/migrations` | Alembic environment and revisions |
+
+## Request lifecycle
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant D as Dependencies
+    participant R as Route
+    participant S as Service
+    participant DB as PostgreSQL
+    C->>D: PATCH /api/v1/todos/todo/{id}/ + Bearer token
+    D->>D: decode the access token (user id)
+    D->>DB: load the user (rejected if disabled)
+    D->>D: check the permission (can_edit_todo)
+    D->>D: validate the body (TodoPublicSchemaUpdate)
+    D->>R: session, user, payload
+    R->>S: TodoService.update(id, payload, session, user)
+    S->>DB: SELECT ... WHERE id AND get_where_clause(user)
+    S->>DB: UPDATE, COMMIT
+    R-->>C: 204 No Content
+```
+
+FastAPI resolves the dependencies before the route runs: authentication,
+permission checks, body and query validation all happen there. Any error along
+the way becomes a response with the same shape (see [Errors](#errors)).
+
+## Authentication
+
+Users log in with a password (`POST /api/v1/auth/login/`, the OAuth 2.0
+password flow, so Swagger UI's "Authorize" button works) or with Google
+(`POST /api/v1/auth/google/`, with the ID token the frontend got from Google).
+Both return the same pair:
+
+- an **access token**: a JWT valid for 15 minutes, carrying only the user id;
+- a **refresh token**: a random string valid for 30 days, stored as a SHA-256
+  hash in the `refreshtoken` table.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API
+    participant DB as PostgreSQL
+    C->>API: login
+    API->>DB: store hash(R1), new family F
+    API-->>C: access token + R1
+    Note over C,API: 15 minutes later
+    C->>API: refresh with R1
+    API->>DB: revoke R1, store hash(R2) in family F
+    API-->>C: new access token + R2
+    Note over C,API: an attacker replays the stolen R1
+    C->>API: refresh with R1 (already revoked)
+    API->>DB: revoke the whole family F (R2 too)
+    API-->>C: 401 INVALID_REFRESH_TOKEN
+```
+
+Every request reads the user from the database, so disabling a user takes
+effect immediately, and permissions are always computed from the current groups.
+Services depend on the `PasswordHasher`, `AccessTokenCodec` and
+`IdentityProvider` protocols, not on argon2, JWT or Google directly.
+
+Google sign-in creates a member on the first login, or links the Google account
+to the user with the same email **only if Google verified that email**. The links
+live in the `externalidentity` table (provider + account id), so a user can have
+several providers.
+
+## Authorization
+
+Users belong to **groups**; groups grant **permissions** (`GROUPS` in
+`app/users/constants.py`); routes declare the permission they need with
+`require_any_permissions`. A user without it gets `403`.
+
+Which records a user can reach is a separate rule, written once per domain in
+`get_where_clause(user)` and used by every query of the service: members reach
+their own todos, `can_manage_all_todos` reaches all of them. A record outside
+the user's reach answers `404`, so the API never reveals that it exists.
+
+## Data
+
+- **Ids** are uuid7 (time-ordered, good index locality).
+- **Timestamps** use the `UTCDateTime` column type: `timestamptz`, and naive
+  datetimes are rejected instead of being interpreted in the server timezone.
+- **Soft delete**: `DELETE` sets `datetime_disabled`; the row is kept but hidden.
+- **Enums** are Postgres enums storing the API values (`in_progress`), sorted in
+  declaration order.
+- **Integrity** is enforced by the database (unique constraints, foreign keys);
+  constraint names follow one naming convention, both in migrations and in tests.
+- **Migrations** are generated by Alembic and applied by the container
+  entrypoint, under a Postgres advisory lock so that replicas starting together
+  do not migrate in parallel. `alembic check` in the test script fails if a model
+  changed without a migration.
+
+## Lists
+
+List endpoints share three building blocks:
+
+- `FilterBase` subclasses declare the filters as typed query parameters
+  (`status`, `priority__in`, `due_date__lte`, `due_date__is_null`), the searchable
+  columns and the sortable fields;
+- `paginate()` returns a page (`items`, `total`, `page`, `size`, `pages`);
+- `csv_response()` exports the same query as CSV, neutralizing the cells a
+  spreadsheet would run as formulas.
+
+## Errors
+
+Every error has the same body, so clients can rely on a machine-readable code:
+
+```json
+{"detail": {"message": "Todo with id … not found", "errorCode": "TODO_NOT_FOUND"}}
+```
+
+| Source | Status | `errorCode` |
+|---|---|---|
+| Application exceptions (`app/core/exceptions.py`) | their own | specific, e.g. `TODO_NOT_FOUND` |
+| Unknown route, wrong method | 404, 405 | `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
+| Invalid request | 422 | `VALIDATION_ERROR`, with an `errors` list that never echoes the input |
+| Unique / foreign key / not null violation | 409 / 422 | `CONFLICT` / `UNPROCESSABLE`, without database details |
+| Anything unexpected | 500 | `SERVER_ERROR` (the traceback goes to the logs and Sentry) |
+
+## Testing
+
+- Tests run against a real PostgreSQL database created for the test session.
+  Each test runs in a transaction rolled back at the end, through savepoints, so
+  services commit as in production and nothing leaks between tests.
+- Every test gets a fresh application from `create_app()`, the same factory as
+  production; dependencies (database session, Google) are overridden per test.
+- Factories generate data; named personas with fixed ids (Alice admin, Bob
+  member, Carol viewer, Dave disabled) make tests readable.
+- Whole responses are compared with inline snapshots; dynamic values with
+  dirty-equals.
+- A guard test reads the OpenAPI schema and fails if a route outside an explicit
+  public list lacks authentication.
+- 100% branch coverage, mypy strict, ruff, bandit and `pip-audit` gate every
+  change in CI.
+
+## Runtime
+
+One Dockerfile, three targets sharing the same base layer:
+
+| Target | Used by | Command |
+|---|---|---|
+| `remote` | production | gunicorn with uvicorn workers, non-root user |
+| `test` | CI | checks, `alembic check`, tests with coverage |
+| `local` | development | uvicorn with reload, source mounted |
+
+The entrypoint applies the migrations, then starts the command. `/api/health/`
+answers as long as the process runs (liveness); `/api/ready/` also checks the
+database (readiness). Configuration comes from `FASTAPI_*` environment
+variables; Sentry is enabled when the `remote` dependency group is installed and
+`SENTRY_DSN` is set.

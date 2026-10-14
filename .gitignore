@@ -19,3 +19,6 @@ htmlcov/
 # Editors
 .idea/
 .vscode/
+
+# Claude Code: personal settings stay local (project skills are shared)
+.claude/settings.local.json
