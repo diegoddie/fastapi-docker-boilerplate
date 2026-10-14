@@ -1,6 +1,7 @@
 """The auth package router tests."""
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from dirty_equals import IsDatetime, IsStr, IsUUID
@@ -15,6 +16,7 @@ from app.auth.services import hash_refresh_token
 from app.core.config import settings
 from app.users.models import User
 from tests.factories.users import TEST_PASSWORD, UserFactory
+from tests.pytest_plugins.auth import FakeIdentityProvider
 from tests.utils import AsyncClient
 
 
@@ -178,6 +180,97 @@ async def test_login_user_route_401(
             }
         }
     )
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_login_user_route_429(
+    async_client: AsyncClient, bob_member_user: User, start_of_minute: datetime
+) -> None:
+    """Test password guessing on an account stops after a few attempts."""
+    for _ in range(settings.RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE):
+        response = await async_client.post(
+            "/api/v1/auth/login/",
+            data={"username": "bob@example.com", "password": "a-wrong-password"},
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    response = await async_client.post(
+        "/api/v1/auth/login/",
+        data={"username": "Bob@Example.com", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["Retry-After"] == "60"
+    assert response.json() == snapshot(
+        {
+            "detail": {
+                "message": "Too many requests: try again later.",
+                "errorCode": "TOO_MANY_REQUESTS",
+            }
+        }
+    )
+    # Another account is not blocked from the same address.
+    response = await async_client.post(
+        "/api/v1/auth/login/",
+        data={"username": "nobody@example.com", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_register_user_route_429(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    start_of_minute: datetime,
+) -> None:
+    """Test the registrations from an address are limited per hour."""
+    monkeypatch.setattr(settings, "RATE_LIMIT_REGISTRATIONS_PER_HOUR", 1)
+    for email, status_code in [
+        ("first@example.com", status.HTTP_201_CREATED),
+        ("second@example.com", status.HTTP_429_TOO_MANY_REQUESTS),
+    ]:
+        response = await async_client.post(
+            "/api/v1/auth/register/",
+            json={"email": email, "password": TEST_PASSWORD, "firstName": "New"},
+        )
+        assert response.status_code == status_code
+    assert response.headers["Retry-After"] == "3600"
+
+
+@pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize(
+    ("url", "request_kwargs"),
+    [
+        (
+            "/api/v1/auth/register/",
+            {"json": {"email": "new@example.com", "password": TEST_PASSWORD}},
+        ),
+        (
+            "/api/v1/auth/login/",
+            {"data": {"username": "nobody@example.com", "password": TEST_PASSWORD}},
+        ),
+        ("/api/v1/auth/google/", {"json": {"id_token": "google-id-token"}}),
+        (
+            "/api/v1/auth/google/link/",
+            {"json": {"id_token": "google-id-token", "password": TEST_PASSWORD}},
+        ),
+    ],
+    ids=["register", "login", "google", "google_link"],
+)
+async def test_route_429_auth_requests_per_ip(
+    async_client: AsyncClient,
+    bob_member_user: User,
+    google_identity_provider: FakeIdentityProvider,
+    monkeypatch: pytest.MonkeyPatch,
+    start_of_minute: datetime,
+    url: str,
+    request_kwargs: dict[str, Any],
+) -> None:
+    """Test every authentication route counts the requests of each address."""
+    monkeypatch.setattr(settings, "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE", 1)
+    async_client.login(bob_member_user)
+    await async_client.post(url, **request_kwargs)
+    response = await async_client.post(url, **request_kwargs)
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert response.json()["detail"]["errorCode"] == "TOO_MANY_REQUESTS"
 
 
 @pytest.mark.asyncio(loop_scope="function")

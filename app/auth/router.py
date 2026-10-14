@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
-from app.auth.dependencies import AuthenticatedUser
+from app.auth.dependencies import (
+    AuthenticatedUser,
+    limit_auth_requests,
+    limit_link_attempts,
+    limit_login_attempts,
+    limit_registrations,
+)
 from app.auth.identity import GoogleIdentityProviderDep
 from app.auth.schemas import (
     IdTokenLinkPublicSchemaPayload,
@@ -34,6 +40,7 @@ GOOGLE_TEST_PAGE = Path(__file__).parent / "templates" / "google_sign_in.html"
     summary="Register a new user",
     status_code=status.HTTP_201_CREATED,
     response_model=UserPublicSchemaResponse,
+    dependencies=[Depends(limit_auth_requests), Depends(limit_registrations)],
 )
 async def register_user_route(
     payload: UserPublicSchemaCreate, session: AsyncDBSession, hasher: PasswordHasherDep
@@ -47,6 +54,7 @@ async def register_user_route(
     summary="Log in with email and password",
     status_code=status.HTTP_200_OK,
     response_model=TokenPublicSchemaResponse,
+    dependencies=[Depends(limit_auth_requests), Depends(limit_login_attempts)],
 )
 async def login_user_route(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -91,6 +99,7 @@ async def logout_user_route(
     summary="Sign in with a Google ID token",
     status_code=status.HTTP_200_OK,
     response_model=TokenPublicSchemaResponse,
+    dependencies=[Depends(limit_auth_requests)],
 )
 async def login_google_user_route(
     payload: IdTokenPublicSchemaPayload,
@@ -107,6 +116,7 @@ async def login_google_user_route(
     "/google/link/",
     summary="Link a Google account to the current user",
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(limit_auth_requests), Depends(limit_link_attempts)],
 )
 async def link_google_account_route(
     payload: IdTokenLinkPublicSchemaPayload,

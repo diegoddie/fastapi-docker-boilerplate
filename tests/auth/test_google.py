@@ -1,6 +1,7 @@
 """The Google sign-in routes tests."""
 
 from dataclasses import replace
+from datetime import datetime
 
 import pytest
 from dirty_equals import IsStr
@@ -312,6 +313,33 @@ async def test_link_google_account_route_409(
             }
         }
     )
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_link_google_account_route_429(
+    async_client: AsyncClient,
+    google_identity_provider: FakeIdentityProvider,
+    bob_member_user: User,
+    start_of_minute: datetime,
+) -> None:
+    """Test the password attempts of linking and login share one limit."""
+    async_client.login(bob_member_user)
+    for _ in range(settings.RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE):
+        response = await async_client.post(
+            "/api/v1/auth/google/link/",
+            json={"id_token": "google-id-token", "password": "a-wrong-password"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+    response = await async_client.post(
+        "/api/v1/auth/google/link/",
+        json={"id_token": "google-id-token", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    response = await async_client.post(
+        "/api/v1/auth/login/",
+        data={"username": "bob@example.com", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
 @pytest.mark.asyncio(loop_scope="function")

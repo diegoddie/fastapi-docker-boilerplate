@@ -17,6 +17,7 @@ status updated.
 | [0008](0008-structured-logs-with-request-id.md) | Structured logs with a request id | Accepted |
 | [0009](0009-refresh-token-reuse-grace-period.md) | A grace period for refresh token reuse | Accepted |
 | [0010](0010-external-accounts-are-linked-explicitly.md) | External accounts are linked explicitly, never by email | Accepted |
+| [0011](0011-rate-limits-in-postgres.md) | Rate limits on the authentication endpoints, counted in PostgreSQL | Accepted |
 
 To add one, copy the structure of an existing record, give it the next number
 and add it to this table.

@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # for this long after a rotation, the old token is not treated as stolen.
     REFRESH_TOKEN_REUSE_GRACE_SECONDS: int = Field(default=30, ge=0)
 
+    # Rate limits of the authentication endpoints
+    # Why: per IP, they slow down credential stuffing and registration spam, but
+    # many users may share an IP (offices, mobile networks): keep them generous.
+    RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE: int = Field(default=30, gt=0)
+    RATE_LIMIT_REGISTRATIONS_PER_HOUR: int = Field(default=10, gt=0)
+    # Why: per account and IP, they stop password guessing.
+    RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE: int = Field(default=5, gt=0)
+
     # Google sign-in (disabled when the client id is not set)
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CERTS_URL: str = "https://www.googleapis.com/oauth2/v3/certs"

@@ -54,6 +54,13 @@ class ConflictHTTPException(BaseHTTPException):
     error_code = "CONFLICT"
 
 
+class TooManyRequestsHTTPException(BaseHTTPException):
+    """Too many requests http exception."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    error_code = "TOO_MANY_REQUESTS"
+
+
 class UnprocessableHTTPException(BaseHTTPException):
     """Unprocessable content http exception."""
 
