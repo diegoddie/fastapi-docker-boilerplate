@@ -23,6 +23,11 @@ fix:
 precommit:
     uv run -m pre_commit run --all-files
 
+# Check the locked dependencies against the known vulnerabilities
+[group("qa")]
+audit:
+    ./scripts/audit.sh
+
 # Install pre-commit git hooks
 [group("qa")]
 precommit_install:
