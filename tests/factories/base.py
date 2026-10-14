@@ -12,6 +12,9 @@ class BaseFactory(SQLAlchemyFactory[T]):
     """Base factory for table models."""
 
     __is_base_factory__ = True
+    # Why: related rows are passed by foreign key (``user_id=bob.id``), never
+    # invented by the factory.
+    __set_relationships__ = False
 
     # Why: let the model defaults win, so ids are uuid7 and timestamps are real.
     id = Ignore()

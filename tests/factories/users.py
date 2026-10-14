@@ -1,5 +1,7 @@
 """The users test factories."""
 
+import asyncio
+
 from app.auth.security import password_hasher
 from app.users.enums import Group
 from app.users.models import User
@@ -7,7 +9,7 @@ from tests.factories.base import BaseFactory
 
 TEST_PASSWORD = "correct-horse-battery-staple"
 # Why: argon2 is slow on purpose, so the hash is computed once for all users.
-TEST_PASSWORD_HASH = password_hasher.hash(TEST_PASSWORD)
+TEST_PASSWORD_HASH = asyncio.run(password_hasher.hash(TEST_PASSWORD))
 
 
 class UserFactory(BaseFactory[User]):

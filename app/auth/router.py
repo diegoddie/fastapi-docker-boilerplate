@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
+from app.auth.dependencies import AuthenticatedUser
 from app.auth.identity import GoogleIdentityProviderDep
 from app.auth.schemas import (
+    IdTokenLinkPublicSchemaPayload,
     IdTokenPublicSchemaPayload,
     RefreshTokenPublicSchemaPayload,
     TokenPublicSchemaResponse,
@@ -99,6 +101,24 @@ async def login_google_user_route(
     """Login Google user route (the frontend sends the ID token Google issued)."""
     user = await AuthService.authenticate_external(payload.id_token, provider, session)
     return await AuthService.issue_tokens(user, session, codec)
+
+
+@router.post(
+    "/google/link/",
+    summary="Link a Google account to the current user",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def link_google_account_route(
+    payload: IdTokenLinkPublicSchemaPayload,
+    user: AuthenticatedUser,
+    session: AsyncDBSession,
+    provider: GoogleIdentityProviderDep,
+    hasher: PasswordHasherDep,
+) -> None:
+    """Link Google account route (the password confirms it is the account owner)."""
+    await AuthService.link_external(
+        payload.id_token, payload.password, user, provider, session, hasher
+    )
 
 
 @router.get("/google/test-page/", include_in_schema=False)

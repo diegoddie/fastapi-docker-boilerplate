@@ -1,5 +1,6 @@
 """The auth package security tests."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
@@ -16,13 +17,33 @@ from app.auth.security import (
 )
 
 
-def test_argon2_password_hasher() -> None:
+@pytest.mark.asyncio(loop_scope="function")
+async def test_argon2_password_hasher() -> None:
     """Test passwords are hashed with argon2 and verified."""
     hasher = Argon2PasswordHasher()
-    password_hash = hasher.hash("a-strong-password")
+    password_hash = await hasher.hash("a-strong-password")
     assert password_hash.startswith("$argon2id$")
-    assert hasher.verify("a-strong-password", password_hash) is True
-    assert hasher.verify("another-password", password_hash) is False
+    assert await hasher.verify("a-strong-password", password_hash) is True
+    assert await hasher.verify("another-password", password_hash) is False
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_argon2_password_hasher_does_not_block_the_event_loop() -> None:
+    """Test hashing runs in a thread, so the event loop keeps serving requests."""
+    ticks = 0
+
+    async def tick() -> None:
+        """Count how often the event loop gets to run this task."""
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0.005)
+
+    task = asyncio.create_task(tick())
+    await Argon2PasswordHasher().hash("a-strong-password")
+    task.cancel()
+    # Why: a hash takes ~150 ms; on the event loop, the task would run once.
+    assert ticks > 5
 
 
 def test_get_password_hasher() -> None:

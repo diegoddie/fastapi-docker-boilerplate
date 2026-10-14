@@ -17,6 +17,7 @@ just audit                # known vulnerabilities in the locked dependencies
 just manage users createsuperuser
 just manage seed          # demo users (Alice admin, Bob member, Carol viewer) and todos, local only
 just manage shell         # IPython with settings, session, models; top-level await
+just manage auth purge-tokens       # delete expired refresh tokens (cron in production)
 docker compose run --rm backend just test               # same, inside Docker
 ```
 
@@ -71,11 +72,14 @@ docker compose run --rm backend just test               # same, inside Docker
   snake_case with fields: `logger.info("todo_created", todo_id=str(todo.id))`.
   `request_id` and `user_id` are added automatically; never log passwords,
   tokens, request bodies or personal data. No `print` (ruff `T20`).
-- **Management commands**: logic in `async def execute_<command>(..., session)`,
-  tested against the test database; the Typer function is a thin wrapper marked
-  `# pragma: no cover` that calls `run_with_session` (`app/cli/utils.py`) and
-  prints with `typer.secho`. Local-only commands call
-  `require_local_environment()`. Register them in `app/cli/main.py`.
+- **Management commands**: logic in a service method or in
+  `async def execute_<command>(..., session)`, tested against the test
+  database; the Typer function is a thin wrapper marked `# pragma: no cover`
+  that calls `run_with_session` (`app/cli/utils.py`) and prints with
+  `typer.secho`. Local-only commands call `require_local_environment()`.
+  Register them in `app/cli/main.py`.
+- **Slow or blocking calls** (password hashing, sync SDKs, file I/O) never run
+  on the event loop: `await run_in_threadpool(...)` inside an async method.
 
 ## Test conventions
 

@@ -30,3 +30,9 @@ class IdTokenPublicSchemaPayload(BaseModel):
     """The ID token public schema payload, as issued by an identity provider."""
 
     id_token: str
+
+
+class IdTokenLinkPublicSchemaPayload(IdTokenPublicSchemaPayload):
+    """The payload to link an external account: its ID token and the password."""
+
+    password: str

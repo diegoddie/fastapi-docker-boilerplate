@@ -1,6 +1,6 @@
 # 0007. Google sign-in with ID tokens verified by the backend
 
-- Status: Accepted
+- Status: Accepted, amended by [0010](0010-external-accounts-are-linked-explicitly.md)
 - Date: 2026-10-13
 
 ## Context
