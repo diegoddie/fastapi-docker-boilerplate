@@ -22,7 +22,7 @@ async def health() -> bool:
 async def ready(session: AsyncDBSession) -> bool:
     """Perform a readiness check: the app can reach the database."""
     try:
-        await session.execute(text("SELECT 1"))
+        await session.scalar(text("SELECT 1"))
     except SQLAlchemyError as e:
         raise ServiceUnavailableHTTPException(
             message="The database is not reachable."

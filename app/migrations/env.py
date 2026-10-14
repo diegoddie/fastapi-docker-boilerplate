@@ -1,6 +1,5 @@
 """The migrations configuration."""
 
-from logging.config import fileConfig
 from typing import Any, Literal
 
 import alembic_postgresql_enum
@@ -12,6 +11,7 @@ from sqlmodel import SQLModel
 import app.core.models  # noqa: F401  # side-effect: register models and naming convention
 from app.commons.types import UTCDateTime
 from app.core.config import settings
+from app.core.logs import configure_logging
 
 # Why: every container runs the migrations on start; when several replicas start
 # together, this Postgres advisory lock lets only one of them migrate at a time.
@@ -20,8 +20,9 @@ MIGRATIONS_UNLOCK = text("SELECT pg_advisory_unlock(hashtext('alembic_migrations
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Why: migrations run when the container starts, so their lines must have the
+# same format as the application's.
+configure_logging(settings)
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(add_type_ignore=True)

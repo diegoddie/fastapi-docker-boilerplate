@@ -2,13 +2,15 @@
 
 import os
 
+from app.core.config import settings
+from app.core.logs import logging_config
+
 # Logging
 # https://docs.gunicorn.org/en/stable/settings.html#logging
 
-access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
-accesslog = "-"
-errorlog = "-"
-loglevel = "info"
+# Why: the master process (workers starting, timeouts) logs in the same format as
+# the app; requests are logged by the app's middleware, not by gunicorn.
+logconfig_dict = logging_config(settings)
 
 # Server Socket
 # https://docs.gunicorn.org/en/stable/settings.html#server-socket

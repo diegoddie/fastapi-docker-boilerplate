@@ -1,29 +1,10 @@
 """The API system routes tests."""
 
-from collections.abc import AsyncGenerator
-
 import pytest
 from fastapi import FastAPI, status
 from httpx import AsyncClient
-from pytest_mock import AsyncMockType, MockerFixture
+from pytest_mock import AsyncMockType
 from sqlalchemy.exc import OperationalError
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from app.core.database import aget_db_session
-
-
-@pytest.fixture
-def db_session_mock(
-    test_app: FastAPI, async_db_session: AsyncSession, mocker: MockerFixture
-) -> AsyncMockType:
-    """Override the test database session with a mock."""
-    session: AsyncMockType = mocker.AsyncMock()
-
-    async def aget_db_session_override() -> AsyncGenerator[AsyncMockType]:
-        yield session
-
-    test_app.dependency_overrides[aget_db_session] = aget_db_session_override
-    return session
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -35,14 +16,11 @@ async def test_health_route_200(async_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio(loop_scope="function")
-async def test_ready_route_200(
-    async_client: AsyncClient, db_session_mock: AsyncMockType
-) -> None:
+async def test_ready_route_200(async_client: AsyncClient) -> None:
     """Test the ready route 200 when the database answers."""
     response = await async_client.get("/api/ready/")
     assert response.status_code == status.HTTP_200_OK
     assert response.json() is True
-    db_session_mock.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -50,7 +28,7 @@ async def test_ready_route_503(
     async_client: AsyncClient, db_session_mock: AsyncMockType
 ) -> None:
     """Test the ready route 503 when the database is not reachable."""
-    db_session_mock.execute.side_effect = OperationalError(
+    db_session_mock.scalar.side_effect = OperationalError(
         "SELECT 1", {}, Exception("connection refused")
     )
     response = await async_client.get("/api/ready/")

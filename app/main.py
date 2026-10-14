@@ -9,8 +9,13 @@ from fastapi_pagination import add_pagination
 
 from app.api.router import router as api_router
 from app.core.config import Settings, settings
+from app.core.constants import REQUEST_ID_HEADER
 from app.core.database import session_manager
 from app.core.handlers import register_exceptions_handlers
+from app.core.logs import add_request_id_to_sentry_event, configure_logging
+from app.core.middleware import RequestContextMiddleware
+
+configure_logging(settings)
 
 try:
     import sentry_sdk
@@ -19,7 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover
 else:  # pragma: no cover
     # Why: sentry-sdk is installed only in the `remote` dependency group. The DSN
     # is read from SENTRY_DSN and the FastAPI integration is enabled automatically.
-    sentry_sdk.init()
+    sentry_sdk.init(before_send=add_request_id_to_sentry_event)
 
 
 @asynccontextmanager
@@ -45,16 +50,25 @@ def create_app(app_settings: Settings = settings) -> FastAPI:
         redoc_url=None,
         lifespan=lifespan,
     )
+    app.include_router(api_router, prefix=app_settings.API_ROOT)
+    add_pagination(app)
+    register_exceptions_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.CORS_ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Why: browsers hide response headers from scripts unless listed here.
+        expose_headers=[REQUEST_ID_HEADER],
     )
-    app.include_router(api_router, prefix=app_settings.API_ROOT)
-    add_pagination(app)
-    register_exceptions_handlers(app)
+    # Why: the last middleware added is the outermost, so every request gets an
+    # id, including those CORS answers by itself; health checks log at debug
+    # level, not to flood the logs every few seconds.
+    app.add_middleware(
+        RequestContextMiddleware,
+        quiet_paths=[str(app.url_path_for(name)) for name in ("health", "ready")],
+    )
     return app
 
 

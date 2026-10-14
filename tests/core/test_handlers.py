@@ -1,8 +1,12 @@
 """The core handlers tests."""
 
 import json
+from collections.abc import Callable
+from typing import Any
 
 import pytest
+import structlog
+from dirty_equals import IsPartialDict
 from fastapi import FastAPI, Request, status
 from httpx import ASGITransport, AsyncClient
 from psycopg.errors import ForeignKeyViolation, NotNullViolation, UniqueViolation
@@ -10,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
 from app.core.exceptions import NotFoundHTTPException
-from app.core.handlers import integrity_error_handler
+from app.core.handlers import integrity_error_handler, unhandled_exception_handler
 from app.main import create_app
 
 
@@ -86,8 +90,10 @@ async def test_validation_error_422(
 
 
 @pytest.mark.asyncio(loop_scope="function")
-async def test_unhandled_error_500() -> None:
-    """Test unexpected errors become a generic 500 in the application format."""
+async def test_unhandled_error_500(
+    log_events: Callable[[str], list[dict[str, Any]]],
+) -> None:
+    """Test unexpected errors become a 500 with the id to find them in the logs."""
     # Why: in debug mode Starlette answers with the traceback instead.
     application = create_app(Settings(DEBUG=False))
 
@@ -100,8 +106,33 @@ async def test_unhandled_error_500() -> None:
     async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         response = await client.get("/api/boom/")
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    request_id = response.headers["X-Request-ID"]
     assert response.json() == {
-        "detail": {"message": "Internal server error.", "errorCode": "SERVER_ERROR"}
+        "detail": {
+            "message": "Internal server error.",
+            "errorCode": "SERVER_ERROR",
+            "requestId": request_id,
+        }
+    }
+    assert log_events("http_request")[-1] == IsPartialDict(
+        request_id=request_id, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+    )
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_unhandled_error_handler_without_request_id() -> None:
+    """Test the 500 handler also works outside a request context."""
+    structlog.contextvars.clear_contextvars()
+    response = await unhandled_exception_handler(
+        Request({"type": "http"}), RuntimeError("boom")
+    )
+    assert "X-Request-ID" not in response.headers
+    assert json.loads(bytes(response.body)) == {
+        "detail": {
+            "message": "Internal server error.",
+            "errorCode": "SERVER_ERROR",
+            "requestId": None,
+        }
     }
 
 

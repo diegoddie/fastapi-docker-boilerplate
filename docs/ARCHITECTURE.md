@@ -28,13 +28,13 @@ flowchart LR
 
 | Package | Responsibility |
 |---|---|
-| `app/core` | settings, database session, exceptions and their handlers, model registry |
+| `app/core` | settings, database session, exceptions and their handlers, logging and the request id middleware, model registry |
 | `app/commons` | base model (uuid7 id, timestamps, soft delete), column types, base schemas, pagination, CSV export |
 | `app/filters` | `FilterBase`: declarative filters, search and ordering for list endpoints |
 | `app/auth` | login, access and refresh tokens, Google sign-in, authentication and permission dependencies |
 | `app/users` | users, groups and the permissions they grant, profile and administration |
 | `app/todos` | the example domain: the reference to copy for new features |
-| `app/cli` | Typer management commands |
+| `app/cli` | Typer management CLI and the cross-domain commands (`seed`, `shell`) |
 | `app/migrations` | Alembic environment and revisions |
 
 ## Request lifecycle
@@ -60,7 +60,9 @@ sequenceDiagram
 
 FastAPI resolves the dependencies before the route runs: authentication,
 permission checks, body and query validation all happen there. Any error along
-the way becomes a response with the same shape (see [Errors](#errors)).
+the way becomes a response with the same shape (see [Errors](#errors)). Around
+all of this, `RequestContextMiddleware` gives the request its id and logs it
+when it is over (see [Logs](#logs)).
 
 ## Authentication
 
@@ -152,7 +154,46 @@ Every error has the same body, so clients can rely on a machine-readable code:
 | Unknown route, wrong method | 404, 405 | `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
 | Invalid request | 422 | `VALIDATION_ERROR`, with an `errors` list that never echoes the input |
 | Unique / foreign key / not null violation | 409 / 422 | `CONFLICT` / `UNPROCESSABLE`, without database details |
-| Anything unexpected | 500 | `SERVER_ERROR` (the traceback goes to the logs and Sentry) |
+| Anything unexpected | 500 | `SERVER_ERROR`, with the `requestId` (the traceback goes to the logs and Sentry) |
+
+## Logs
+
+Every line goes through structlog, from the application or from a library
+(uvicorn, gunicorn, Alembic, SQLAlchemy): JSON objects in remote environments,
+colored key-value lines locally.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant M as RequestContextMiddleware
+    participant A as Dependencies and route
+    participant L as Logs
+    C->>M: GET /api/v1/todos/todo/ (X-Request-ID optional)
+    M->>M: reuse the id if safe, otherwise generate one
+    M->>A: request, with request_id bound to the logging context
+    A->>A: authentication binds user_id
+    A->>L: application lines (request_id, user_id)
+    A-->>M: response
+    M->>L: http_request (method, path, status, duration)
+    M-->>C: response + X-Request-ID
+```
+
+A request line in production:
+
+```json
+{"event": "http_request", "method": "GET", "path": "/api/v1/users/user/me/", "status_code": 200, "duration_ms": 8.1, "request_id": "5c33bd64…", "user_id": "01a13a8e…", "logger": "app.core.middleware", "level": "info", "timestamp": "2026-10-14T13:23:39.842336Z"}
+```
+
+- The request id comes from the `X-Request-ID` header when a proxy, a frontend
+  or another service sets a safe one, so a request can be followed across
+  services; otherwise it is generated.
+- Unexpected errors answer `500` with the `requestId` in the body and the
+  header, and Sentry events are tagged with it: from a bug report to the
+  traceback in one search.
+- Health checks are logged at debug level, so probes do not flood the logs.
+- Application code logs events with fields:
+  `structlog.get_logger(__name__).info("todo_created", todo_id=str(todo.id))`;
+  the request id and the user id are added automatically.
 
 ## Testing
 
@@ -185,3 +226,10 @@ answers as long as the process runs (liveness); `/api/ready/` also checks the
 database (readiness). Configuration comes from `FASTAPI_*` environment
 variables; Sentry is enabled when the `remote` dependency group is installed and
 `SENTRY_DSN` is set.
+
+Management commands run with `just manage <command>` (Typer): `seed` fills a
+local database with demo users and todos, `shell` opens IPython with the
+settings, a database session and the models loaded, and each domain adds its
+own (`users createsuperuser`). A command keeps its logic in an
+`execute_<command>()` function tested against the test database, and its Typer
+wrapper thin.

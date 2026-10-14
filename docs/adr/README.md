@@ -13,6 +13,7 @@ once accepted; a new record supersedes an old one.
 | [0005](0005-unreachable-resources-are-not-found.md) | Unreachable resources answer 404, deletes are soft | Accepted |
 | [0006](0006-settings-and-constants.md) | Settings for what varies by environment, constants for the rest | Accepted |
 | [0007](0007-google-sign-in-with-id-tokens.md) | Google sign-in with ID tokens verified by the backend | Accepted |
+| [0008](0008-structured-logs-with-request-id.md) | Structured logs with a request id | Accepted |
 
 To add one, copy the structure of an existing record, give it the next number
 and add it to this table.

@@ -5,12 +5,13 @@ Every error leaves the API in the same shape, so clients can rely on it:
 
     {"detail": {"message": "...", "errorCode": "NOT_FOUND"}}
 
-Validation errors add an ``errors`` list with one entry per invalid field.
+Validation errors add an ``errors`` list with one entry per invalid field, and
+unexpected errors the ``requestId`` that finds their traceback in the logs.
 """
 
-import logging
 from typing import cast
 
+import structlog
 from fastapi import FastAPI, Request, Response, status
 from fastapi.exception_handlers import (
     http_exception_handler as default_http_exception_handler,
@@ -21,14 +22,16 @@ from psycopg.errors import ForeignKeyViolation, NotNullViolation, UniqueViolatio
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.constants import REQUEST_ID_HEADER
 from app.core.exceptions import (
     BaseHTTPException,
     ConflictHTTPException,
     ServerErrorHTTPException,
     UnprocessableHTTPException,
 )
+from app.core.logs import get_request_id
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 ERROR_CODES: dict[int, str] = {
     status.HTTP_400_BAD_REQUEST: "BAD_REQUEST",
@@ -107,17 +110,25 @@ async def integrity_error_handler(request: Request, exc: Exception) -> Response:
         case _:
             http_exc = ServerErrorHTTPException(message="Database integrity error.")
     logger.warning(
-        "Integrity error on constraint %s",
-        getattr(getattr(orig, "diag", None), "constraint_name", None),
+        "integrity_error",
+        constraint=getattr(getattr(orig, "diag", None), "constraint_name", None),
     )
     return await default_http_exception_handler(request, http_exc)
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> Response:
     """Return unexpected errors in our format (the traceback is still logged)."""
+    # Why: this response is sent outside the middleware that adds the request id
+    # header, and it is the one a user reports, so the id is also in the body.
+    request_id = get_request_id()
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": error_detail("Internal server error.", "SERVER_ERROR")},
+        content={
+            "detail": error_detail(
+                "Internal server error.", "SERVER_ERROR", requestId=request_id
+            )
+        },
+        headers={REQUEST_ID_HEADER: request_id} if request_id else None,
     )
 
 

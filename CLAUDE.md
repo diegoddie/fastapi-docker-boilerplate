@@ -15,15 +15,18 @@ just pytest tests/todos -k create   # a subset, with output
 just forge "add invoice table"      # migration from the models, then review it
 just audit                # known vulnerabilities in the locked dependencies
 just manage users createsuperuser
+just manage seed          # demo users (Alice admin, Bob member, Carol viewer) and todos, local only
+just manage shell         # IPython with settings, session, models; top-level await
 docker compose run --rm backend just test               # same, inside Docker
 ```
 
 ## Layout
 
-- `app/core/`: settings, database session, exceptions, exception handlers, model registry
+- `app/core/`: settings, database session, exceptions, exception handlers, logging (`logs.py`), request id middleware, model registry
 - `app/commons/`: base model, column types, base schemas, pagination, CSV export
 - `app/filters/`: `FilterBase` for list filters, search and ordering
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
+- `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
 - `app/<domain>/`: `constants.py`, `enums.py`, `models.py`, `schemas.py`, `services.py`, `router.py` (+ `commands/`)
 - `tests/<domain>/` mirrors `app/`; fixtures in `tests/pytest_plugins/`, factories in `tests/factories/`
 
@@ -64,6 +67,15 @@ docker compose run --rm backend just test               # same, inside Docker
   mypy strict (`# type: ignore[<code>]` only with the code), line length 88.
 - **External services** go behind a `Protocol` and a FastAPI dependency, so tests
   replace them (see `app/auth/identity.py`).
+- **Logging**: `logger = structlog.get_logger(__name__)`, then an event name in
+  snake_case with fields: `logger.info("todo_created", todo_id=str(todo.id))`.
+  `request_id` and `user_id` are added automatically; never log passwords,
+  tokens, request bodies or personal data. No `print` (ruff `T20`).
+- **Management commands**: logic in `async def execute_<command>(..., session)`,
+  tested against the test database; the Typer function is a thin wrapper marked
+  `# pragma: no cover` that calls `run_with_session` (`app/cli/utils.py`) and
+  prints with `typer.secho`. Local-only commands call
+  `require_local_environment()`. Register them in `app/cli/main.py`.
 
 ## Test conventions
 
@@ -82,6 +94,8 @@ docker compose run --rm backend just test               # same, inside Docker
   and read the row back.
 - Tests use a real PostgreSQL database, rolled back after each test; they never
   call external services. Warnings are errors.
+- Assert logs with the `log_events` fixture: `log_events("http_request")` returns
+  the structlog events with that name, as dicts.
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and
   optional imports.
 

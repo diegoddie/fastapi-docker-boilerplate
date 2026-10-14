@@ -34,6 +34,12 @@ class Settings(BaseSettings):
 
     CORS_ALLOWED_ORIGINS: list[str] = []
 
+    # Logging
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    # Why: log platforms parse one JSON object per line, but JSON is hard to read
+    # in a terminal, so by default it is used only in remote environments.
+    LOG_FORMAT: Literal["console", "json"] | None = None
+
     # Database
     DATABASE_URL: PostgresDsn
     DATABASE_POOL_SIZE: int = 5
@@ -60,6 +66,13 @@ class Settings(BaseSettings):
         if self.DOCS_ENABLED is None:
             return self.ENVIRONMENT == "local"
         return self.DOCS_ENABLED
+
+    @property
+    def log_format(self) -> Literal["console", "json"]:
+        """Return how log lines are rendered."""
+        if self.LOG_FORMAT is None:
+            return "console" if self.ENVIRONMENT == "local" else "json"
+        return self.LOG_FORMAT
 
     @computed_field  # type: ignore[prop-decorator]
     @property
