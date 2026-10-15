@@ -28,6 +28,25 @@ needed, whether a CSV export is useful.
    `<Model>(Base<Model>, BaseSQLModel, table=True)` with
    `id: UUID = Field(default_factory=uuid7, primary_key=True)`, foreign keys
    (`ondelete`, `index=True`), enums via `sa_column=Column(pg_enum(...), nullable=False)`.
+   **Unique fields and soft delete**: a deleted row stays in the table, so with
+   `unique=True` its value stays taken and creating it again is a `409`. When a
+   value must be reusable after a delete (a slug, a code), make it unique among
+   the active rows only, with a partial index instead of `unique=True`:
+
+   ```python
+   __table_args__ = (
+       Index(
+           "uq_<resource>_<field>_active",
+           "<field>",
+           unique=True,
+           postgresql_where=text("datetime_disabled IS NULL"),
+       ),
+   )
+   ```
+
+   A clash is still a `UniqueViolation`, so the API still answers `409`. Ask
+   which behavior is wanted; users are the exception on purpose (a disabled
+   user can be reactivated, so the email stays taken).
 5. `schemas.py`: `<Model>PublicSchemaCreate`, `<Model>PublicSchemaUpdate` (all
    optional, `reject_null` for non-nullable columns), `<Model>PublicSchemaResponse`,
    `<Model>CSVSchema` (field titles = CSV headers), `<Model>Filter(FilterBase)`.
@@ -43,7 +62,8 @@ needed, whether a CSV export is useful.
 ## 3. Migration
 
 Run `just migrate-forward`, then `just forge "add <resource> table"`, and read
-the generated file: enum types, foreign keys with `ondelete`, constraint names.
+the generated file: enum types, foreign keys with `ondelete`, constraint names,
+`postgresql_where` on partial indexes.
 Check that `just migrate-backward -1` and `just migrate-forward` both work.
 
 ## 4. Tests
