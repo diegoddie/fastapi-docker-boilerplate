@@ -23,7 +23,7 @@ dependencies = [
 
 [dependency-groups]
 remote = [
-    "sentry-sdk~=2.71.0",
+    "sentry-sdk>=2.71,<2.73",
     "uvicorn-worker~=0.4.0",
 ]
 test = [
@@ -41,12 +41,12 @@ test = [
     "pytest-random-order~=1.2.0",
     "pytest-sugar~=1.1.1",
     "pytest-xdist~=3.8.0",
-    "ruff~=0.16.10",
+    "ruff>=0.16.10,<0.18.0",
     "time-machine~=3.5.1",
 ]
 local = [
     "ipython~=9.17.1",
-    "pre-commit~=4.6.2",
+    "pre-commit>=4.6.2,<4.8.0",
     "psycopg[binary,pool]~=3.3.6",
     "pyclean~=3.7.0",
     "rust-just~=1.58.0",
