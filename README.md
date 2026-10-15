@@ -248,7 +248,7 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
 - **External identities in their own table, linked explicitly.** A user can be linked to several external accounts (provider + account id) and still have a password. An external account is never linked by email: linking needs a signed-in user and their password, so neither whoever registered an address first nor a former owner of the address can get into the account.
 - **Rate limits that hold with many workers.** Login attempts are limited per account and IP (so a stranger cannot lock you out), all authentication requests per IP. The counters live in PostgreSQL with an atomic upsert, so two gunicorn workers or ten containers share them, and the table stores hashes, not emails or addresses.
-- **Slow on purpose, but not blocking.** Argon2 costs ~150 ms of CPU per password, by design; the password hasher is async and runs it in a worker thread, so logins do not stall the other requests.
+- **Slow on purpose, but not blocking.** Argon2 costs ~150 ms of CPU and 64 MiB of memory per password, by design. The password hasher is async and runs it in a worker thread, so logins do not stall the other requests, and at most `FASTAPI_PASSWORD_HASH_CONCURRENCY` hashes run at once per worker: a burst of logins waits in line instead of exhausting the memory (30 hashes at once: ~1.9 GiB without the cap, ~190 MiB with 2).
 - **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
 - **OAuth 2.0 where it matters.** The token endpoints use the snake_case fields of RFC 6749 (`access_token`, `refresh_token`…), which Swagger UI and OAuth client libraries expect; the rest of the API is camelCase.
 - **Tests guard the API surface.** A test reads the OpenAPI schema and fails if any route outside an explicit list of public paths lacks authentication.
@@ -281,6 +281,7 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access token lifetime |
 | `FASTAPI_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 | `FASTAPI_REFRESH_TOKEN_REUSE_GRACE_SECONDS` | `30` | How long a rotated refresh token still works (concurrent refreshes); `0` disables it |
+| `FASTAPI_PASSWORD_HASH_CONCURRENCY` | `2` | Password hashes running at once per worker (64 MiB each); the others wait |
 | `FASTAPI_RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE` | `5` | Login and linking attempts per account and IP |
 | `FASTAPI_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE` | `30` | Authentication requests per IP (registration, login, Google) |
 | `FASTAPI_RATE_LIMIT_REGISTRATIONS_PER_HOUR` | `10` | Registrations per IP |
@@ -293,6 +294,19 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND_PORT` and `POSTGRES_PORT`.
 
 > **Database URL in Docker vs on your machine.** `FASTAPI_DATABASE_URL` in `.env` points to `localhost`, for the commands you run on your machine. Inside Docker Compose the backend reaches the database through the `postgres` service instead: compose sets the container's `FASTAPI_DATABASE_URL` from `DATABASE_URL`, which defaults to the compose database. Set `DATABASE_URL` only to point the container to another database.
+
+## Deploying to production
+
+The `remote` image runs gunicorn with uvicorn workers as a non-root user and applies the migrations when it starts. Before going live:
+
+- [ ] **Secrets**: a random `FASTAPI_SECRET_KEY` (`openssl rand -hex 32`), never the one in `.env_template`; `FASTAPI_DATABASE_URL` pointing to the production database.
+- [ ] **Environment**: `FASTAPI_ENVIRONMENT=remote` (the default): API docs off, JSON logs.
+- [ ] **CORS**: `FASTAPI_CORS_ALLOWED_ORIGINS` lists the frontend origins.
+- [ ] **Behind a load balancer or reverse proxy**: set `FORWARDED_ALLOW_IPS` to its addresses (or `*` if only the proxy can reach the app). If it is missing, nothing fails: every user simply gets the proxy's address and the whole site shares the per-IP rate limits (30 logins per minute, 10 registrations per hour).
+- [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
+- [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (expired refresh tokens and rate limit counters).
+- [ ] **Monitoring**: `SENTRY_DSN`; probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
+- [ ] **Google sign-in** (if used): the production origins in the OAuth client, and `FASTAPI_GOOGLE_CLIENT_ID`.
 
 ## Using it as a template
 

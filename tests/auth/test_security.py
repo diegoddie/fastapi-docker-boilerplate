@@ -1,11 +1,15 @@
 """The auth package security tests."""
 
 import asyncio
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import jwt
 import pytest
+from pwdlib import PasswordHash
+from pytest_mock import MockerFixture
 
 from app.auth.security import (
     Argon2PasswordHasher,
@@ -20,7 +24,7 @@ from app.auth.security import (
 @pytest.mark.asyncio(loop_scope="function")
 async def test_argon2_password_hasher() -> None:
     """Test passwords are hashed with argon2 and verified."""
-    hasher = Argon2PasswordHasher()
+    hasher = Argon2PasswordHasher(concurrency=2)
     password_hash = await hasher.hash("a-strong-password")
     assert password_hash.startswith("$argon2id$")
     assert await hasher.verify("a-strong-password", password_hash) is True
@@ -40,10 +44,36 @@ async def test_argon2_password_hasher_does_not_block_the_event_loop() -> None:
             await asyncio.sleep(0.005)
 
     task = asyncio.create_task(tick())
-    await Argon2PasswordHasher().hash("a-strong-password")
+    await Argon2PasswordHasher(concurrency=2).hash("a-strong-password")
     task.cancel()
     # Why: a hash takes ~150 ms; on the event loop, the task would run once.
     assert ticks > 5
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_argon2_password_hasher_limits_concurrency(
+    mocker: MockerFixture,
+) -> None:
+    """Test at most ``concurrency`` hashes run at once: the others wait their turn."""
+    running = peak = 0
+    lock = threading.Lock()
+
+    def slow_hash(self: PasswordHash, password: str) -> str:
+        """Record how many hashes run at the same time."""
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.1)
+        with lock:
+            running -= 1
+        return f"hash-of-{password}"
+
+    mocker.patch.object(PasswordHash, "hash", autospec=True, side_effect=slow_hash)
+    hasher = Argon2PasswordHasher(concurrency=2)
+    hashes = await asyncio.gather(*(hasher.hash(f"password-{i}") for i in range(6)))
+    assert hashes == [f"hash-of-password-{i}" for i in range(6)]
+    assert peak == 2
 
 
 def test_get_password_hasher() -> None:

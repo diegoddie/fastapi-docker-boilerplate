@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # for this long after a rotation, the old token is not treated as stolen.
     REFRESH_TOKEN_REUSE_GRACE_SECONDS: int = Field(default=30, ge=0)
 
+    # Why: each password hash takes 64 MiB of memory: at most this many run at
+    # once in a worker (the others wait), so a burst of logins cannot exhaust the
+    # memory of the container. Size the memory of a container accordingly.
+    PASSWORD_HASH_CONCURRENCY: int = Field(default=2, gt=0)
+
     # Rate limits of the authentication endpoints
     # Why: per IP, they slow down credential stuffing and registration spam, but
     # many users may share an IP (offices, mobile networks): keep them generous.

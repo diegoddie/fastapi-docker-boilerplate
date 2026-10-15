@@ -7,6 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
     "alembic~=1.20.0",
     "alembic-postgresql-enum~=1.10.0",
+    "anyio~=4.15.1",
     "fastapi-pagination~=0.16.1",
     "fastapi[standard-no-fastapi-cloud-cli]~=0.143.0",
     "psycopg~=3.3.6",

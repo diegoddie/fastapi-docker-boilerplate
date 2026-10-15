@@ -12,10 +12,11 @@ from typing import Annotated, Protocol
 from uuid import UUID
 
 import jwt
+from anyio import CapacityLimiter, to_thread
+from anyio.lowlevel import RunVar
 from fastapi import Depends
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
-from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 
@@ -41,22 +42,41 @@ class Argon2PasswordHasher:
     """
     Password hasher based on argon2id, the OWASP recommended algorithm.
 
-    Why: argon2 takes ~150 ms of CPU, during which the event loop could serve no
-    other request; it runs in a worker thread instead, and since argon2 releases
-    the GIL, several hashes run in parallel.
+    Why: argon2 takes ~150 ms of CPU and 64 MiB of memory per hash, on purpose.
+    It runs in a worker thread, so the event loop keeps serving other requests
+    (argon2 releases the GIL), and at most ``concurrency`` hashes run at once in
+    a process: the others wait their turn instead of taking 64 MiB each, which
+    could exhaust the memory of the container.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, concurrency: int) -> None:
         """Initialize the instance."""
         self._hasher = PasswordHash((Argon2Hasher(),))
+        self._concurrency = concurrency
+        # Why: a limiter belongs to an event loop, so there is one per loop, as
+        # for Starlette's own thread limiter.
+        self._limiter: RunVar[CapacityLimiter] = RunVar("password_hash_limiter")
 
     async def hash(self, password: str) -> str:
         """Return the hash of a password."""
-        return await run_in_threadpool(self._hasher.hash, password)
+        return await to_thread.run_sync(
+            self._hasher.hash, password, limiter=self._get_limiter()
+        )
 
     async def verify(self, password: str, password_hash: str) -> bool:
         """Tell if a password matches a hash."""
-        return await run_in_threadpool(self._hasher.verify, password, password_hash)
+        return await to_thread.run_sync(
+            self._hasher.verify, password, password_hash, limiter=self._get_limiter()
+        )
+
+    def _get_limiter(self) -> CapacityLimiter:
+        """Return the limiter of the running event loop."""
+        try:
+            return self._limiter.get()
+        except LookupError:
+            limiter = CapacityLimiter(self._concurrency)
+            self._limiter.set(limiter)
+            return limiter
 
 
 @dataclass(frozen=True)
@@ -115,7 +135,7 @@ class JWTAccessTokenCodec:
             raise InvalidAccessTokenError from e
 
 
-password_hasher = Argon2PasswordHasher()
+password_hasher = Argon2PasswordHasher(settings.PASSWORD_HASH_CONCURRENCY)
 
 
 def get_password_hasher() -> PasswordHasher:

@@ -84,6 +84,8 @@ docker compose run --rm backend just test               # same, inside Docker
   `app/auth/dependencies.py`); the numbers are settings.
 - **Slow or blocking calls** (password hashing, sync SDKs, file I/O) never run
   on the event loop: `await run_in_threadpool(...)` inside an async method.
+  Work that is heavy on CPU or memory also gets a `CapacityLimiter` of its own,
+  so a burst of requests waits in line (see `Argon2PasswordHasher`).
 
 ## Test conventions
 
