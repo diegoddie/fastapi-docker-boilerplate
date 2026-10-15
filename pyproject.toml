@@ -41,6 +41,7 @@ test = [
     "pytest-sugar~=1.1.1",
     "pytest-xdist~=3.8.0",
     "ruff~=0.16.10",
+    "time-machine~=3.5.1",
 ]
 local = [
     "ipython~=9.17.1",

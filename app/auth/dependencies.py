@@ -1,17 +1,25 @@
 """The auth package dependencies."""
 
 from collections.abc import Awaitable, Callable, Iterable
+from datetime import timedelta
 from typing import Annotated
 from uuid import UUID
 
 import structlog
 from fastapi import Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
+from app.auth.constants import (
+    AUTH_REQUESTS_RATE_LIMIT,
+    PASSWORD_ATTEMPTS_RATE_LIMIT,
+    REGISTRATIONS_RATE_LIMIT,
+)
 from app.auth.security import AccessTokenCodecDep, InvalidAccessTokenError
 from app.core.config import settings
 from app.core.database import AsyncDBSession
 from app.core.exceptions import ForbiddenHTTPException, UnauthorizedHTTPException
+from app.ratelimit.dependencies import ClientIP, RateLimiterDep
+from app.ratelimit.services import RateLimit, RateLimiter
 from app.users.models import User
 
 # Why: declaring the login URL enables the "Authorize" button in Swagger UI.
@@ -69,3 +77,57 @@ def require_any_permissions(
         return user
 
     return check_any_permissions
+
+
+async def limit_auth_requests(ip: ClientIP, limiter: RateLimiterDep) -> None:
+    """Limit the authentication requests of each IP address."""
+    await limiter.hit(
+        RateLimit(
+            AUTH_REQUESTS_RATE_LIMIT,
+            settings.RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE,
+            timedelta(minutes=1),
+        ),
+        ip,
+    )
+
+
+async def limit_registrations(ip: ClientIP, limiter: RateLimiterDep) -> None:
+    """Limit the registrations from each IP address."""
+    await limiter.hit(
+        RateLimit(
+            REGISTRATIONS_RATE_LIMIT,
+            settings.RATE_LIMIT_REGISTRATIONS_PER_HOUR,
+            timedelta(hours=1),
+        ),
+        ip,
+    )
+
+
+async def limit_login_attempts(
+    form: Annotated[OAuth2PasswordRequestForm, Depends()],
+    ip: ClientIP,
+    limiter: RateLimiterDep,
+) -> None:
+    """Limit the password attempts on each account from each IP address."""
+    await _limit_password_attempts(form.username, ip, limiter)
+
+
+async def limit_link_attempts(
+    user: AuthenticatedUser, ip: ClientIP, limiter: RateLimiterDep
+) -> None:
+    """Limit the password confirmations of each user from each IP address."""
+    await _limit_password_attempts(user.email, ip, limiter)
+
+
+async def _limit_password_attempts(email: str, ip: str, limiter: RateLimiter) -> None:
+    """Count a password attempt on an account from an IP address."""
+    # Why: counting per account alone would let anyone lock a user out; per
+    # account and IP, guessing is slowed down and the owner can still log in.
+    await limiter.hit(
+        RateLimit(
+            PASSWORD_ATTEMPTS_RATE_LIMIT,
+            settings.RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE,
+            timedelta(minutes=1),
+        ),
+        f"{email.strip().lower()}|{ip}",
+    )

@@ -30,6 +30,7 @@ flowchart LR
 |---|---|
 | `app/core` | settings, database session, exceptions and their handlers, logging and the request id middleware, model registry |
 | `app/commons` | base model (uuid7 id, timestamps, soft delete), column types, base schemas, pagination, CSV export |
+| `app/ratelimit` | rate limits: counters in PostgreSQL, the `RateLimiter` protocol, the client IP dependency |
 | `app/filters` | `FilterBase`: declarative filters, search and ordering for list endpoints |
 | `app/auth` | login, access and refresh tokens, Google sign-in, authentication and permission dependencies |
 | `app/users` | users, groups and the permissions they grant, profile and administration |
@@ -97,7 +98,7 @@ Within 30 seconds of a rotation, the old token is not treated as stolen while
 its session is still open: two tabs, or two requests refreshing together, each
 get a pair ([ADR 0009](adr/0009-refresh-token-reuse-grace-period.md)). Revoked
 tokens are kept until they expire, since they are what detects a replay;
-`just manage auth purge-tokens` deletes the expired ones.
+`just manage purge` deletes the expired ones.
 
 Every request reads the user from the database, so disabling a user takes
 effect immediately, and permissions are always computed from the current groups.
@@ -114,6 +115,14 @@ the address first). The user signs in with the password and links Google with
 ([ADR 0010](adr/0010-external-accounts-are-linked-explicitly.md)). The links
 live in the `externalidentity` table (provider + account id), so a user can have
 several providers.
+
+Registration, login, Google sign-in and linking are **rate limited**
+([ADR 0011](adr/0011-rate-limits-in-postgres.md)): 5 password attempts per minute
+per account and IP (login and linking share the count), 30 requests per minute
+and 10 registrations per hour per IP. Over a limit the API answers `429` with
+`Retry-After`. The counters live in PostgreSQL, so every worker and container
+shares them; the client IP comes from `X-Forwarded-For` only when the proxy is
+trusted (`FORWARDED_ALLOW_IPS`).
 
 ## Authorization
 
@@ -165,6 +174,7 @@ Every error has the same body, so clients can rely on a machine-readable code:
 | Application exceptions (`app/core/exceptions.py`) | their own | specific, e.g. `TODO_NOT_FOUND` |
 | Unknown route, wrong method | 404, 405 | `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
 | Invalid request | 422 | `VALIDATION_ERROR`, with an `errors` list that never echoes the input |
+| Rate limit exceeded | 429 | `TOO_MANY_REQUESTS`, with a `Retry-After` header |
 | Unique / foreign key / not null violation | 409 / 422 | `CONFLICT` / `UNPROCESSABLE`, without database details |
 | Anything unexpected | 500 | `SERVER_ERROR`, with the `requestId` (the traceback goes to the logs and Sentry) |
 
@@ -242,6 +252,7 @@ variables; Sentry is enabled when the `remote` dependency group is installed and
 Management commands run with `just manage <command>` (Typer): `seed` fills a
 local database with demo users and todos, `shell` opens IPython with the
 settings, a database session and the models loaded, and each domain adds its
-own (`users createsuperuser`, `auth purge-tokens`, to schedule daily). A command keeps its logic in an
+own (`users createsuperuser`). `purge`, to schedule daily, deletes the expired
+refresh tokens and rate limit counters. A command keeps its logic in an
 `execute_<command>()` function tested against the test database, and its Typer
 wrapper thin.

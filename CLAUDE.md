@@ -17,7 +17,7 @@ just audit                # known vulnerabilities in the locked dependencies
 just manage users createsuperuser
 just manage seed          # demo users (Alice admin, Bob member, Carol viewer) and todos, local only
 just manage shell         # IPython with settings, session, models; top-level await
-just manage auth purge-tokens       # delete expired refresh tokens (cron in production)
+just manage purge         # delete expired refresh tokens and rate limit counters (daily cron)
 docker compose run --rm backend just test               # same, inside Docker
 ```
 
@@ -26,6 +26,7 @@ docker compose run --rm backend just test               # same, inside Docker
 - `app/core/`: settings, database session, exceptions, exception handlers, logging (`logs.py`), request id middleware, model registry
 - `app/commons/`: base model, column types, base schemas, pagination, CSV export
 - `app/filters/`: `FilterBase` for list filters, search and ordering
+- `app/ratelimit/`: `RateLimiter` (PostgreSQL counters), `ClientIP`, `RateLimiterDep`
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
 - `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
 - `app/<domain>/`: `constants.py`, `enums.py`, `models.py`, `schemas.py`, `services.py`, `router.py` (+ `commands/`)
@@ -78,6 +79,9 @@ docker compose run --rm backend just test               # same, inside Docker
   that calls `run_with_session` (`app/cli/utils.py`) and prints with
   `typer.secho`. Local-only commands call `require_local_environment()`.
   Register them in `app/cli/main.py`.
+- **Rate limits**: a public route that checks a password, sends emails or is
+  costly gets a limit dependency (see `limit_login_attempts` in
+  `app/auth/dependencies.py`); the numbers are settings.
 - **Slow or blocking calls** (password hashing, sync SDKs, file I/O) never run
   on the event loop: `await run_in_threadpool(...)` inside an async method.
 
@@ -98,6 +102,8 @@ docker compose run --rm backend just test               # same, inside Docker
   and read the row back.
 - Tests use a real PostgreSQL database, rolled back after each test; they never
   call external services. Warnings are errors.
+- Tests of rate limits use the `start_of_minute` fixture (frozen clock), so a
+  window never ends halfway through the test.
 - Assert logs with the `log_events` fixture: `log_events("http_request")` returns
   the structlog events with that name, as dicts.
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and

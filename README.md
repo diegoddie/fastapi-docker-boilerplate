@@ -16,7 +16,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 ## Features
 
 - **Async all the way**: FastAPI + SQLModel/SQLAlchemy 2 async sessions on PostgreSQL (psycopg 3)
-- **Authentication**: open registration, email + password login (argon2, hashed off the event loop), **Sign in with Google** with accounts linked explicitly (never by email), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection that tolerates concurrent refreshes, real logout and a purge command; the Swagger UI "Authorize" button works out of the box
+- **Authentication**: open registration, email + password login (argon2, hashed off the event loop), **Sign in with Google** with accounts linked explicitly (never by email), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection that tolerates concurrent refreshes, real logout and a purge command; **rate limits** on login, registration and Google sign-in, shared by every worker; the Swagger UI "Authorize" button works out of the box
 - **Permissions**: users belong to groups, groups grant permissions, and routes declare the permission they need (`require_any_permissions`)
 - **Users API**: profile (`me`), and paginated user management for administrators
 - **Example domain (`todos`)**: the reference to copy for new features, with CRUD, permissions per action, per-owner visibility, filters, search, ordering, pagination, soft delete and a CSV export safe from formula injection
@@ -45,7 +45,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 | API | fastapi-pagination |
 | CLI | Typer |
 | Quality | ruff, mypy (strict), bandit, pre-commit |
-| Testing | pytest, pytest-asyncio, pytest-cov, pytest-mock, pytest-xdist, polyfactory, inline-snapshot, dirty-equals |
+| Testing | pytest, pytest-asyncio, pytest-cov, pytest-mock, pytest-xdist, polyfactory, inline-snapshot, dirty-equals, time-machine |
 | Tooling | uv, just, Docker, Docker Compose, GitHub Actions, Dependabot |
 | Logging and monitoring | structlog, Sentry (optional, production only) |
 
@@ -186,11 +186,11 @@ Run `just` to list every command. The most used ones:
 | `just manage users createsuperuser` | Create an administrator |
 | `just manage seed` | Fill a local database with demo users and todos |
 | `just manage shell` | IPython with the settings, a database session and the models loaded (top-level `await`) |
-| `just manage auth purge-tokens` | Delete the expired refresh tokens |
+| `just manage purge` | Delete the expired refresh tokens and rate limit counters |
 | `just audit` | Check the locked dependencies for known vulnerabilities |
 | `just upgrade` | Upgrade the dependencies within the pinned ranges |
 
-In production, schedule `auth purge-tokens` once a day, e.g. as a Kubernetes CronJob or a cron entry. The `remote` image has no `just`, so run the module directly: `docker compose run --rm backend python -m app.cli.main auth purge-tokens`.
+In production, schedule `purge` once a day, e.g. as a Kubernetes CronJob or a cron entry. The `remote` image has no `just`, so run the module directly: `docker compose run --rm backend python -m app.cli.main purge`.
 
 ## Project structure
 
@@ -206,6 +206,7 @@ app/
 ├── users/               # users domain: models, schemas, services, router, commands
 ├── todos/               # example domain: the reference for new features
 ├── filters/             # FilterBase: declarative filters, search and ordering
+├── ratelimit/           # rate limits with counters in PostgreSQL
 ├── cli/                 # Typer management CLI: seed, shell
 └── migrations/          # Alembic environment and revisions
 tests/
@@ -246,6 +247,7 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
 - **External identities in their own table, linked explicitly.** A user can be linked to several external accounts (provider + account id) and still have a password. An external account is never linked by email: linking needs a signed-in user and their password, so neither whoever registered an address first nor a former owner of the address can get into the account.
+- **Rate limits that hold with many workers.** Login attempts are limited per account and IP (so a stranger cannot lock you out), all authentication requests per IP. The counters live in PostgreSQL with an atomic upsert, so two gunicorn workers or ten containers share them, and the table stores hashes, not emails or addresses.
 - **Slow on purpose, but not blocking.** Argon2 costs ~150 ms of CPU per password, by design; the password hasher is async and runs it in a worker thread, so logins do not stall the other requests.
 - **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
 - **OAuth 2.0 where it matters.** The token endpoints use the snake_case fields of RFC 6749 (`access_token`, `refresh_token`…), which Swagger UI and OAuth client libraries expect; the rest of the API is camelCase.
@@ -279,10 +281,14 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access token lifetime |
 | `FASTAPI_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 | `FASTAPI_REFRESH_TOKEN_REUSE_GRACE_SECONDS` | `30` | How long a rotated refresh token still works (concurrent refreshes); `0` disables it |
+| `FASTAPI_RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE` | `5` | Login and linking attempts per account and IP |
+| `FASTAPI_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE` | `30` | Authentication requests per IP (registration, login, Google) |
+| `FASTAPI_RATE_LIMIT_REGISTRATIONS_PER_HOUR` | `10` | Registrations per IP |
 | `FASTAPI_GOOGLE_CLIENT_ID` | — | OAuth client id that enables Sign in with Google |
 | `FASTAPI_GOOGLE_CERTS_URL` | Google's public keys URL | Where Google's signing keys are fetched from |
 | `SENTRY_DSN` | — | Enables Sentry in the `remote` image |
 | `WEB_CONCURRENCY` | `2` | Number of gunicorn workers |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Proxies trusted to set `X-Forwarded-For` (read by uvicorn and gunicorn). Behind a load balancer, set its addresses (or `*` if only the proxy can reach the app); otherwise every client has the proxy's address and they share the rate limits |
 
 Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND_PORT` and `POSTGRES_PORT`.
 
