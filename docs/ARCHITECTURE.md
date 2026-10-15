@@ -104,8 +104,10 @@ Every request reads the user from the database, so disabling a user takes
 effect immediately, and permissions are always computed from the current groups.
 Services depend on the `PasswordHasher`, `AccessTokenCodec` and
 `IdentityProvider` protocols, not on argon2, JWT or Google directly. The hasher
-is async: argon2 costs ~150 ms of CPU by design, so it runs in a worker thread
-and a login never stalls the other requests.
+is async: argon2 costs ~150 ms of CPU and 64 MiB of memory by design, so it runs
+in a worker thread, and a login never stalls the other requests; at most
+`FASTAPI_PASSWORD_HASH_CONCURRENCY` hashes run at once per worker, so a burst of
+logins waits in line instead of exhausting the memory.
 
 Google sign-in creates a member on the first login. If a user with the same
 email exists, it answers `409 ACCOUNT_EXISTS` and links nothing: the email does
