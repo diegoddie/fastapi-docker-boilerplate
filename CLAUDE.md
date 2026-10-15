@@ -50,7 +50,10 @@ docker compose run --rm backend just test               # same, inside Docker
   then `<Model>(Base<Model>, BaseSQLModel, table=True)` with `id = uuid7`, foreign
   keys and indexes. Datetimes: `datetime.now(UTC)`, columns `sa_type=UTCDateTime`.
   Enums: `StrEnum` + `sa_column=Column(pg_enum(MyEnum), nullable=False)`.
-  Register every table model in `app/core/models.py`.
+  Register every table model in `app/core/models.py`. Deletes are soft, so a
+  value that must be reusable after a delete is unique among the active rows
+  only: `Index(..., unique=True, postgresql_where=text("datetime_disabled IS NULL"))`
+  instead of `unique=True` (see the `new-domain-app` skill).
 - **Schemas**: `<Model>PublicSchemaCreate` / `Update` / `Response` (camelCase via
   `BasePublicSchema`), `<Model>CSVSchema`, `<Model>Filter`. Update schemas have
   every field optional and use `reject_null` for non-nullable columns.

@@ -73,7 +73,7 @@ async def download_todos_route(
     user: AuthenticatedUser,
 ) -> StreamingResponse:
     """Download todos route: the same filters as the list, without pagination."""
-    return await csv_response(
+    return csv_response(
         session, TodoService.list_query(filters, user), TodoCSVSchema, "todos.csv"
     )
 

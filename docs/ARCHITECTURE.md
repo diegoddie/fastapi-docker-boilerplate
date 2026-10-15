@@ -141,6 +141,9 @@ the user's reach answers `404`, so the API never reveals that it exists.
 - **Timestamps** use the `UTCDateTime` column type: `timestamptz`, and naive
   datetimes are rejected instead of being interpreted in the server timezone.
 - **Soft delete**: `DELETE` sets `datetime_disabled`; the row is kept but hidden.
+  A value that must be reusable after a delete (a slug) is unique among the
+  active rows only, with a partial unique index (`WHERE datetime_disabled IS
+  NULL`); a plain unique constraint would keep it taken by the deleted row.
 - **Enums** are Postgres enums storing the API values (`in_progress`), sorted in
   declaration order.
 - **Integrity** is enforced by the database (unique constraints, foreign keys);
@@ -159,7 +162,8 @@ List endpoints share three building blocks:
   columns and the sortable fields;
 - `paginate()` returns a page (`items`, `total`, `page`, `size`, `pages`);
 - `csv_response()` exports the same query as CSV, neutralizing the cells a
-  spreadsheet would run as formulas.
+  spreadsheet would run as formulas; it streams the rows from a server-side
+  cursor in batches, so an export of any size holds one batch in memory.
 
 ## Errors
 
