@@ -165,7 +165,8 @@ List endpoints share three building blocks:
 - `paginate()` returns a page (`items`, `total`, `page`, `size`, `pages`);
 - `csv_response()` exports the same query as CSV, neutralizing the cells a
   spreadsheet would run as formulas; it streams the rows from a server-side
-  cursor in batches, so an export of any size holds one batch in memory.
+  cursor in batches, so an export of any size holds one batch in memory (and
+  one database connection until the download ends).
 
 ## Errors
 

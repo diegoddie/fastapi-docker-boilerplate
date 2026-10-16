@@ -6,7 +6,9 @@ No test ever calls Google:
 - ``google_identity_provider`` replaces Google with a fake that asserts the
   identity of Erin, a Google user who has no account here yet;
 - ``google_id_token`` signs ID tokens the way Google does, with a key generated
-  for the test session, to test the real ``GoogleIdentityProvider``.
+  for the test session, to test the real ``GoogleIdentityProvider``;
+- ``recording_password_hasher`` hashes for real, and records whether a database
+  transaction was open meanwhile.
 """
 
 from collections.abc import Callable
@@ -18,13 +20,18 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.identity import (
     ExternalIdentityClaims,
     GoogleIdentityProvider,
     get_google_identity_provider,
 )
-from app.auth.security import JWTAccessTokenCodec
+from app.auth.security import (
+    JWTAccessTokenCodec,
+    get_password_hasher,
+    password_hasher,
+)
 from tests.factories.auth import RefreshTokenFactory
 
 
@@ -41,6 +48,25 @@ class FakeIdentityProvider:
         if self.error is not None:
             raise self.error
         return self.claims
+
+
+class RecordingPasswordHasher:
+    """The real password hasher, recording whether a transaction was open."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        """Initialize the instance."""
+        self.session = session
+        self.in_transaction: list[bool] = []
+
+    async def hash(self, password: str) -> str:
+        """Return the hash of a password."""
+        self.in_transaction.append(self.session.in_transaction())
+        return await password_hasher.hash(password)
+
+    async def verify(self, password: str, password_hash: str) -> bool:
+        """Tell if a password matches a hash."""
+        self.in_transaction.append(self.session.in_transaction())
+        return await password_hasher.verify(password, password_hash)
 
 
 @dataclass(frozen=True)
@@ -141,3 +167,13 @@ def jwt_access_token_codec() -> JWTAccessTokenCodec:
 def refresh_token_factory(seed_factories: None) -> type[RefreshTokenFactory]:
     """Return the refresh token factory, bound to the test database."""
     return RefreshTokenFactory
+
+
+@pytest.fixture
+def recording_password_hasher(
+    test_app: FastAPI, async_db_session: AsyncSession
+) -> RecordingPasswordHasher:
+    """Replace the password hasher with one recording the open transactions."""
+    hasher = RecordingPasswordHasher(async_db_session)
+    test_app.dependency_overrides[get_password_hasher] = lambda: hasher
+    return hasher

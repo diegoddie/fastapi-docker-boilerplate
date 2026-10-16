@@ -46,6 +46,9 @@ class AuthService:
         user = (
             await session.exec(select(User).where(User.email == email.lower()))
         ).one_or_none()
+        # Why: ends the read transaction, so the connection goes back to the pool
+        # while the request waits its turn for the password hash (slow, capped).
+        await session.commit()
         if user is None or user.password_hash is None:
             # Why: hash anyway, so the response time does not reveal which emails
             # are registered.

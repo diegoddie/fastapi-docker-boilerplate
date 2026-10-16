@@ -89,6 +89,9 @@ docker compose run --rm backend just test               # same, inside Docker
   on the event loop: `await run_in_threadpool(...)` inside an async method.
   Work that is heavy on CPU or memory also gets a `CapacityLimiter` of its own,
   so a burst of requests waits in line (see `Argon2PasswordHasher`).
+- **Never wait holding a transaction**: before awaiting slow work (a password
+  hash, an external service), end the reads with `await session.commit()`, so
+  the connection goes back to the pool (see `AuthService.authenticate`).
 
 ## Test conventions
 
