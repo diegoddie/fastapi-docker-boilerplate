@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Why: by default Dependabot may widen a `~=` pin into a `>=x,<y` range;
+    # increase rewrites the pin to the new version instead, keeping one style.
+    versioning-strategy: increase
     groups:
       python:
         patterns: ["*"]
