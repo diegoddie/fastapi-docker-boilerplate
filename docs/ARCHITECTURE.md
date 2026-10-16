@@ -30,6 +30,7 @@ flowchart LR
 |---|---|
 | `app/core` | settings, database session, exceptions and their handlers, logging and the request id middleware, model registry |
 | `app/commons` | base model (uuid7 id, timestamps, soft delete), column types, base schemas, pagination, CSV export |
+| `app/emails` | the `EmailSender` protocol: SMTP, console (local), and sending after the response |
 | `app/ratelimit` | rate limits: counters in PostgreSQL, the `RateLimiter` protocol, the client IP dependency |
 | `app/filters` | `FilterBase`: declarative filters, search and ordering for list endpoints |
 | `app/auth` | login, access and refresh tokens, Google sign-in, authentication and permission dependencies |
@@ -117,6 +118,31 @@ the address first). The user signs in with the password and links Google with
 ([ADR 0010](adr/0010-external-accounts-are-linked-explicitly.md)). The links
 live in the `externalidentity` table (provider + account id), so a user can have
 several providers.
+
+**Email verification and password reset** use single-use tokens, stored as
+hashes and sent by email as links to the frontend
+([ADR 0012](adr/0012-email-verification-and-password-reset.md)):
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant API
+    participant M as Mailbox
+    U->>F: forgot my password
+    F->>API: POST /auth/password/forgot/ {email}
+    API-->>F: 202 (same answer for unknown emails)
+    API-)M: after the response: link with #token=…
+    U->>F: opens /reset-password#token=…
+    F->>API: POST /auth/password/reset/ {token, password}
+    API->>API: delete the token, set the password, end every session
+    API-->>F: 204
+```
+
+An address counts as verified once its owner opens such a link, or signs in
+with Google when Google is authoritative for it. An unverified account never
+blocks the owner of the address: the first proof of ownership hands it over and
+removes every way in set up before (sessions, linked external accounts).
 
 Registration, login, Google sign-in and linking are **rate limited**
 ([ADR 0011](adr/0011-rate-limits-in-postgres.md)): 5 password attempts per minute

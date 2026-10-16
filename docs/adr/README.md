@@ -16,8 +16,9 @@ status updated.
 | [0007](0007-google-sign-in-with-id-tokens.md) | Google sign-in with ID tokens verified by the backend | Amended by 0010 |
 | [0008](0008-structured-logs-with-request-id.md) | Structured logs with a request id | Accepted |
 | [0009](0009-refresh-token-reuse-grace-period.md) | A grace period for refresh token reuse | Accepted |
-| [0010](0010-external-accounts-are-linked-explicitly.md) | External accounts are linked explicitly, never by email | Accepted |
+| [0010](0010-external-accounts-are-linked-explicitly.md) | External accounts are linked explicitly, never by email | Amended by 0012 |
 | [0011](0011-rate-limits-in-postgres.md) | Rate limits on the authentication endpoints, counted in PostgreSQL | Accepted |
+| [0012](0012-email-verification-and-password-reset.md) | Email verification and password reset | Accepted |
 
 To add one, copy the structure of an existing record, give it the next number
 and add it to this table.

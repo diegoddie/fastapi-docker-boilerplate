@@ -1,5 +1,6 @@
 """The tests package utils."""
 
+import re
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from httpx import ASGITransport
 from httpx import AsyncClient as BaseAsyncClient
 
 from app.auth.dependencies import get_token_subject
+from app.emails.services import EmailMessage
 from app.users.models import User
 from tests.factories.users import TEST_PASSWORD
 
@@ -52,3 +54,10 @@ class AsyncClient(BaseAsyncClient):
         response = await self.post("/api/v1/auth/google/", json={"id_token": id_token})
         assert response.status_code == status.HTTP_200_OK, response.text
         return dict(response.json())
+
+
+def email_token(message: EmailMessage) -> str:
+    """Return the token carried by the link in an email."""
+    match = re.search(r"#token=([\w-]+)", message.text)
+    assert match is not None, message.text
+    return match.group(1)

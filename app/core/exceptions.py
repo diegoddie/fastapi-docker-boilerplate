@@ -26,6 +26,13 @@ class BaseHTTPException(HTTPException):
         )
 
 
+class BadRequestHTTPException(BaseHTTPException):
+    """Bad request http exception."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    error_code = "BAD_REQUEST"
+
+
 class UnauthorizedHTTPException(BaseHTTPException):
     """Unauthorized http exception."""
 

@@ -42,6 +42,7 @@ async def execute_seed(password: str, session: AsyncSession) -> list[User]:
             session,
             password_hasher,
             groups=[seed_user.group],
+            email_verified=True,
         )
         for seed_todo in SEED_TODOS:
             await TodoService.create(

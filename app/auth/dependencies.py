@@ -11,9 +11,11 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from app.auth.constants import (
     AUTH_REQUESTS_RATE_LIMIT,
+    EMAILS_RATE_LIMIT,
     PASSWORD_ATTEMPTS_RATE_LIMIT,
     REGISTRATIONS_RATE_LIMIT,
 )
+from app.auth.schemas import EmailPublicSchemaPayload
 from app.auth.security import AccessTokenCodecDep, InvalidAccessTokenError
 from app.core.config import settings
 from app.core.database import AsyncDBSession
@@ -130,4 +132,31 @@ async def _limit_password_attempts(email: str, ip: str, limiter: RateLimiter) ->
             timedelta(minutes=1),
         ),
         f"{email.strip().lower()}|{ip}",
+    )
+
+
+async def limit_password_reset_emails(
+    payload: EmailPublicSchemaPayload, limiter: RateLimiterDep
+) -> None:
+    """Limit the password reset emails sent to each address."""
+    await _limit_emails(payload.email, limiter)
+
+
+async def limit_verification_emails(
+    user: AuthenticatedUser, limiter: RateLimiterDep
+) -> None:
+    """Limit the verification emails sent to each address."""
+    await _limit_emails(user.email, limiter)
+
+
+async def _limit_emails(email: str, limiter: RateLimiter) -> None:
+    """Count an email sent to an address."""
+    # Why: per recipient, whatever the IP, so nobody can flood someone's inbox.
+    await limiter.hit(
+        RateLimit(
+            EMAILS_RATE_LIMIT,
+            settings.RATE_LIMIT_EMAILS_PER_HOUR,
+            timedelta(hours=1),
+        ),
+        email.strip().lower(),
     )

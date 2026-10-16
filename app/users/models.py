@@ -1,14 +1,16 @@
 """The users package models."""
 
+from datetime import datetime
 from uuid import UUID, uuid7
 
-from pydantic import EmailStr, field_validator
+from pydantic import EmailStr, computed_field, field_validator
 from sqlalchemy import Column, String, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.mutable import MutableList
 from sqlmodel import Field, SQLModel
 
 from app.commons.models import BaseSQLModel
+from app.commons.types import UTCDateTime
 from app.users.constants import EMAIL_MAX_LENGTH, GROUPS, NAME_MAX_LENGTH
 from app.users.enums import Group
 
@@ -43,6 +45,16 @@ class User(BaseUser, BaseSQLModel, table=True):
             server_default=text("'{}'"),
         ),
     )
+
+    # Why: set when the user proved they own the address: they opened a link
+    # sent to it, or signed in with a provider authoritative for it (Gmail).
+    datetime_email_verified: datetime | None = Field(default=None, sa_type=UTCDateTime)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_email_verified(self) -> bool:
+        """Tell if the user proved they own their email address."""
+        return self.datetime_email_verified is not None
 
     @property
     def permissions(self) -> frozenset[str]:

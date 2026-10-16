@@ -68,6 +68,27 @@ class Settings(BaseSettings):
     RATE_LIMIT_REGISTRATIONS_PER_HOUR: int = Field(default=10, gt=0)
     # Why: per account and IP, they stop password guessing.
     RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE: int = Field(default=5, gt=0)
+    # Why: per recipient, whatever the IP, so nobody can flood someone's inbox.
+    RATE_LIMIT_EMAILS_PER_HOUR: int = Field(default=5, gt=0)
+
+    # Email verification and password reset
+    # Why: the links in the emails open these pages of the frontend, which send
+    # the token to the API.
+    FRONTEND_URL: str = "http://localhost:3000"
+    EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS: int = Field(default=24, gt=0)
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)
+
+    # Emails
+    # Why: by default emails are written to the logs locally, sent remotely; the
+    # console backend logs the links, so it must not be used where logs are kept.
+    EMAIL_BACKEND: Literal["console", "smtp"] | None = None
+    EMAIL_FROM: str = "no-reply@example.com"
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_SECURITY: Literal["starttls", "ssl", "none"] = "starttls"
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
+    SMTP_TIMEOUT_SECONDS: float = Field(default=10, gt=0)
 
     # Google sign-in (disabled when the client id is not set)
     GOOGLE_CLIENT_ID: str | None = None
@@ -82,6 +103,13 @@ class Settings(BaseSettings):
         if self.DOCS_ENABLED is None:
             return self.ENVIRONMENT == "local"
         return self.DOCS_ENABLED
+
+    @property
+    def email_backend(self) -> Literal["console", "smtp"]:
+        """Return how emails are delivered."""
+        if self.EMAIL_BACKEND is None:
+            return "console" if self.ENVIRONMENT == "local" else "smtp"
+        return self.EMAIL_BACKEND
 
     @property
     def log_format(self) -> Literal["console", "json"]:

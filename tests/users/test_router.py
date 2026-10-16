@@ -85,6 +85,7 @@ async def test_me_user_route_200(
             "id": "0194f8a0-2000-7000-8000-000000000002",
             "groups": ["member"],
             "isActive": True,
+            "isEmailVerified": True,
             "datetimeCreated": IsDatetime(iso_string=True),
         }
     )
@@ -151,6 +152,7 @@ async def test_list_users_route_200(
                     "id": "0194f8a0-2000-7000-8000-000000000003",
                     "groups": ["viewer"],
                     "isActive": True,
+                    "isEmailVerified": True,
                     "datetimeCreated": IsDatetime(iso_string=True),
                 },
                 {
@@ -160,6 +162,7 @@ async def test_list_users_route_200(
                     "id": "0194f8a0-2000-7000-8000-000000000004",
                     "groups": ["member"],
                     "isActive": False,
+                    "isEmailVerified": True,
                     "datetimeCreated": IsDatetime(iso_string=True),
                 },
             ],

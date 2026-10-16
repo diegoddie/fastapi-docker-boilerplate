@@ -28,6 +28,7 @@ def test_get_shell_namespace() -> None:
             "select",
             "col",
             "ExternalIdentity",
+            "OneTimeToken",
             "RateLimitCounter",
             "RefreshToken",
             "Todo",

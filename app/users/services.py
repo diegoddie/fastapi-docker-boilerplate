@@ -12,6 +12,7 @@ from sqlmodel.sql.expression import SelectOfScalar
 from app.auth.security import PasswordHasher
 from app.auth.services import AuthService
 from app.core.exceptions import ForbiddenHTTPException, NotFoundHTTPException
+from app.emails.services import EmailSender
 from app.users.constants import DEFAULT_GROUPS
 from app.users.enums import Group
 from app.users.models import User
@@ -46,6 +47,7 @@ class UserService:
         session: AsyncSession,
         hasher: PasswordHasher,
         groups: Iterable[Group] = DEFAULT_GROUPS,
+        email_verified: bool = False,
     ) -> User:
         """Create a user with a password (a duplicate email is a 409)."""
         user = User.model_validate(
@@ -53,6 +55,9 @@ class UserService:
             | {
                 "password_hash": await hasher.hash(payload.password),
                 "groups": list(groups),
+                "datetime_email_verified": (
+                    datetime.now(UTC) if email_verified else None
+                ),
             }
         )
         session.add(user)
@@ -61,6 +66,18 @@ class UserService:
         except IntegrityError:
             await session.rollback()
             raise
+        return user
+
+    @staticmethod
+    async def register(
+        payload: UserPublicSchemaCreate,
+        session: AsyncSession,
+        hasher: PasswordHasher,
+        sender: EmailSender,
+    ) -> User:
+        """Create a member and email them a link to verify their address."""
+        user = await UserService.create(payload, session, hasher)
+        await AuthService.request_email_verification(user, session, sender)
         return user
 
     @staticmethod

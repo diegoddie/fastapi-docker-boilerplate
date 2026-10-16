@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime
 
 import pytest
-from dirty_equals import IsStr
+from dirty_equals import IsDatetime, IsStr
 from fastapi import status
 from inline_snapshot import snapshot
 from sqlmodel import select
@@ -55,12 +55,84 @@ async def test_login_google_user_route_200_new_user(
         ["member"],
     )
     assert user.password_hash is None
+    assert user.datetime_email_verified == IsDatetime
     identity = (await async_db_session.exec(select(ExternalIdentity))).one()
     assert (identity.user_id, identity.provider, identity.subject) == (
         user.id,
         "google",
         "google-subject-erin",
     )
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_login_google_user_route_200_new_user_not_authoritative(
+    async_client: AsyncClient,
+    async_db_session: AsyncSession,
+    google_identity_provider: FakeIdentityProvider,
+) -> None:
+    """Test an address Google is not authoritative for starts unverified."""
+    google_identity_provider.claims = replace(
+        google_identity_provider.claims, email_authoritative=False
+    )
+    await async_client.google_login()
+    user = (await async_db_session.exec(select(User))).one()
+    assert user.datetime_email_verified is None
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_login_google_user_route_200_takes_over_unverified_account(
+    async_client: AsyncClient,
+    async_db_session: AsyncSession,
+    google_identity_provider: FakeIdentityProvider,
+    user_factory: type[UserFactory],
+) -> None:
+    """Test the owner of a Gmail address takes over an account nobody verified."""
+    squatter = await user_factory.create_async(
+        email="erin.example@gmail.com", datetime_email_verified=None
+    )
+    squatter_session = await async_client.password_login("erin.example@gmail.com")
+    async_db_session.add(
+        ExternalIdentity(user_id=squatter.id, provider="google", subject="squatter")
+    )
+    await async_db_session.commit()
+    tokens = await async_client.google_login()
+    response = await async_client.get(
+        "/api/v1/users/user/me/",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    assert response.json()["id"] == str(squatter.id)
+    assert response.json()["isEmailVerified"] is True
+    response = await async_client.post(
+        "/api/v1/auth/refresh/",
+        json={"refresh_token": squatter_session["refresh_token"]},
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    async_db_session.expunge_all()
+    user = await async_db_session.get(User, squatter.id)
+    assert user is not None
+    assert user.password_hash is None
+    identities = (await async_db_session.exec(select(ExternalIdentity))).all()
+    assert [identity.subject for identity in identities] == ["google-subject-erin"]
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_login_google_user_route_409_unverified_not_authoritative(
+    async_client: AsyncClient,
+    google_identity_provider: FakeIdentityProvider,
+    user_factory: type[UserFactory],
+) -> None:
+    """Test an account nobody verified is taken over only on Google's word."""
+    await user_factory.create_async(
+        email="erin.example@gmail.com", datetime_email_verified=None
+    )
+    google_identity_provider.claims = replace(
+        google_identity_provider.claims, email_authoritative=False
+    )
+    response = await async_client.post(
+        "/api/v1/auth/google/", json={"id_token": "google-id-token"}
+    )
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"]["errorCode"] == "ACCOUNT_EXISTS"
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -285,6 +357,32 @@ async def test_link_google_account_route_403(
             "detail": {
                 "message": "The password is not correct.",
                 "errorCode": "INVALID_PASSWORD",
+            }
+        }
+    )
+    assert (await async_db_session.exec(select(ExternalIdentity))).all() == []
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_link_google_account_route_403_email_not_verified(
+    async_client: AsyncClient,
+    async_db_session: AsyncSession,
+    google_identity_provider: FakeIdentityProvider,
+    user_factory: type[UserFactory],
+) -> None:
+    """Test an account nobody verified cannot collect more ways in."""
+    user = await user_factory.create_async(datetime_email_verified=None)
+    async_client.login(user)
+    response = await async_client.post(
+        "/api/v1/auth/google/link/",
+        json={"id_token": "google-id-token", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == snapshot(
+        {
+            "detail": {
+                "message": "Verify your email address before linking an account.",
+                "errorCode": "EMAIL_NOT_VERIFIED",
             }
         }
     )

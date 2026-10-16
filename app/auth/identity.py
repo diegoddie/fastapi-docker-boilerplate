@@ -14,7 +14,7 @@ import jwt
 from fastapi import Depends
 from starlette.concurrency import run_in_threadpool
 
-from app.auth.constants import GOOGLE_ISSUERS, GOOGLE_PROVIDER
+from app.auth.constants import GMAIL_DOMAIN, GOOGLE_ISSUERS, GOOGLE_PROVIDER
 from app.core.config import settings
 from app.core.exceptions import NotFoundHTTPException
 from app.users.constants import NAME_MAX_LENGTH
@@ -30,6 +30,9 @@ class ExternalIdentityClaims:
     email_verified: bool
     first_name: str
     last_name: str
+    # Why: a provider may report an address as verified long after its owner
+    # lost it; only for its own addresses is it authoritative (e.g. Gmail).
+    email_authoritative: bool = False
 
 
 class InvalidIdentityTokenError(Exception):
@@ -80,6 +83,9 @@ class GoogleIdentityProvider:
         except jwt.PyJWTError as e:
             raise InvalidIdentityTokenError from e
         email = str(claims["email"])
+        email_verified = claims.get("email_verified") is True
+        domain = email.rpartition("@")[2].lower()
+        hosted_domain = claims.get("hd")
         first_name = (
             claims.get("given_name") or claims.get("name") or email.split("@")[0]
         )
@@ -87,9 +93,16 @@ class GoogleIdentityProvider:
             provider=GOOGLE_PROVIDER,
             subject=str(claims["sub"]),
             email=email,
-            email_verified=claims.get("email_verified") is True,
+            email_verified=email_verified,
             first_name=str(first_name)[:NAME_MAX_LENGTH],
             last_name=str(claims.get("family_name", ""))[:NAME_MAX_LENGTH],
+            # Why: Google is authoritative for Gmail addresses and for the domain
+            # of a Workspace account (the ``hd`` claim), not for other addresses.
+            email_authoritative=email_verified
+            and (
+                domain == GMAIL_DOMAIN
+                or (isinstance(hosted_domain, str) and domain == hosted_domain.lower())
+            ),
         )
 
 

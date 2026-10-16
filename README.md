@@ -16,7 +16,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 ## Features
 
 - **Async all the way**: FastAPI + SQLModel/SQLAlchemy 2 async sessions on PostgreSQL (psycopg 3)
-- **Authentication**: open registration, email + password login (argon2, hashed off the event loop), **Sign in with Google** with accounts linked explicitly (never by email), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection that tolerates concurrent refreshes, real logout and a purge command; **rate limits** on login, registration and Google sign-in, shared by every worker; the Swagger UI "Authorize" button works out of the box
+- **Authentication**: open registration with **email verification**, email + password login (argon2, hashed off the event loop), **password reset** by email, **Sign in with Google** with accounts linked explicitly (never by email), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection that tolerates concurrent refreshes, real logout and a purge command; **rate limits** on login, registration and Google sign-in, shared by every worker; the Swagger UI "Authorize" button works out of the box
 - **Permissions**: users belong to groups, groups grant permissions, and routes declare the permission they need (`require_any_permissions`)
 - **Users API**: profile (`me`), and paginated user management for administrators
 - **Example domain (`todos`)**: the reference to copy for new features, with CRUD, permissions per action, per-owner visibility, filters, search, ordering, pagination, soft delete and a streamed CSV export safe from formula injection
@@ -87,7 +87,11 @@ docker compose run --rm backend just manage seed
 | `POST` | `/api/v1/auth/refresh/` | public | Exchange a refresh token for a new pair (rotation) |
 | `POST` | `/api/v1/auth/logout/` | public | Revoke the session of a refresh token |
 | `POST` | `/api/v1/auth/google/` | public | Sign in with a Google ID token and get a token pair |
-| `POST` | `/api/v1/auth/google/link/` | authenticated | Link a Google account to your user (password required) |
+| `POST` | `/api/v1/auth/google/link/` | authenticated | Link a Google account to your user (password and verified email required) |
+| `POST` | `/api/v1/auth/email/verification/` | authenticated | Email a new link to verify your address |
+| `POST` | `/api/v1/auth/email/verify/` | public | Verify an address with the token of the link |
+| `POST` | `/api/v1/auth/password/forgot/` | public | Email a link to choose a new password (always `202`) |
+| `POST` | `/api/v1/auth/password/reset/` | public | Choose a new password with the token of the link; ends every session |
 | `GET` / `PATCH` | `/api/v1/users/user/me/` | authenticated | Read or update your own profile |
 | `GET` | `/api/v1/users/user/` | `can_view_user` | List users (paginated) |
 | `GET` | `/api/v1/users/user/{id}/` | `can_view_user` | User detail |
@@ -105,8 +109,8 @@ docker compose run --rm backend just manage seed
 
 The frontend shows Google's "Sign in with Google" button, receives an **ID token** from Google and sends it to `POST /api/v1/auth/google/` as `{"id_token": "..."}`. The backend verifies the token (Google's signature, issuer, audience, expiry) and answers with the same token pair as the password login:
 
-- the first sign-in creates a `member` without a password, if Google verified the email;
-- if an account with the same email already exists, the sign-in answers `409` with `errorCode: ACCOUNT_EXISTS` and links nothing, because the email does not prove that the person owns that account (someone may have registered the address first, or the address may have changed hands). The user signs in with the password, and the frontend links the Google account with `POST /api/v1/auth/google/link/`, sending `{"id_token": "...", "password": "..."}`;
+- the first sign-in creates a `member` without a password, if Google verified the email; the address counts as verified when Google is authoritative for it (Gmail, or the domain of a Workspace account);
+- if an account with the same email already exists, the sign-in answers `409` with `errorCode: ACCOUNT_EXISTS` and links nothing, because the email does not prove that the person owns that account (someone may have registered the address first, or the address may have changed hands). The user signs in with the password, and the frontend links the Google account with `POST /api/v1/auth/google/link/`, sending `{"id_token": "...", "password": "..."}`. The exception is an account whose address nobody ever verified: when Google is authoritative for the address, the person signing in owns it and takes the account over (its password, sessions and other linked accounts are removed);
 - the next sign-ins find the user through the Google account id, even if the email changes.
 
 To enable it:
@@ -117,6 +121,21 @@ To enable it:
 4. Open http://localhost:8000/api/v1/auth/google/test-page/: a local page (served only when the docs are) with the Google button, which shows the tokens returned by the backend.
 
 Without a client id, Google sign-in answers `404` with `errorCode: GOOGLE_SIGN_IN_DISABLED`.
+
+## Email verification and password reset
+
+Registration sends a link to verify the address; "forgot password" sends a link to choose a new one. The links open two pages of your frontend, which send the token to the API:
+
+| Page | Link | The page calls |
+|---|---|---|
+| Verify the email | `{FRONTEND_URL}/verify-email#token=...` | `POST /api/v1/auth/email/verify/` with `{"token": "..."}` |
+| Reset the password | `{FRONTEND_URL}/reset-password#token=...` | `POST /api/v1/auth/password/reset/` with `{"token": "...", "password": "..."}` |
+
+- The token is in the fragment (`#`), which browsers never send to servers. It works once and expires (24 hours to verify, 30 minutes to reset); a new link replaces the previous one.
+- "Forgot password" answers `202` whether the email exists or not, so it does not reveal who is registered. A reset ends every session of the user.
+- Unverified users can log in; `isEmailVerified` in `GET /api/v1/users/user/me/` tells the frontend to show a reminder, and `POST /api/v1/auth/email/verification/` sends a new link.
+- Whoever proves an address first wins: a reset on an account nobody verified also removes the external accounts linked to it, so a person who registered someone else's address keeps no way in.
+- Emails are sent after the response. Locally they are written to the logs (open the link from the terminal); remotely they go through SMTP (`FASTAPI_SMTP_*`), any provider works.
 
 ## Groups and permissions
 
@@ -246,7 +265,9 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **Exports are safe to open, and of any size.** CSV cells starting with `=`, `+`, `-`, `@` are prefixed with a quote, so a spreadsheet never runs them as formulas. Rows are read with a server-side cursor, 1,000 at a time, while the file is sent: memory does not grow with the export.
 - **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
-- **External identities in their own table, linked explicitly.** A user can be linked to several external accounts (provider + account id) and still have a password. An external account is never linked by email: linking needs a signed-in user and their password, so neither whoever registered an address first nor a former owner of the address can get into the account.
+- **External identities in their own table, linked explicitly.** A user can be linked to several external accounts (provider + account id) and still have a password. An external account is never linked by email: linking needs a signed-in user with a verified address and their password, so neither whoever registered an address first nor a former owner of the address can get into the account.
+- **Whoever proves the address wins.** Registration does not prove that the address is yours, so an unverified account never blocks its real owner: a password reset (a link sent to the address) or a Google sign-in authoritative for it hands the account over, and every way in set up before is removed.
+- **Emails never slow a request down.** Services depend on an `EmailSender`; requests get one that sends after the response, so the client never waits for the mail server, and a failed delivery is logged without the recipient or the text.
 - **Rate limits that hold with many workers.** Login attempts are limited per account and IP (so a stranger cannot lock you out), all authentication requests per IP. The counters live in PostgreSQL with an atomic upsert, so two gunicorn workers or ten containers share them, and the table stores hashes, not emails or addresses.
 - **Slow on purpose, but not blocking.** Argon2 costs ~150 ms of CPU and 64 MiB of memory per password, by design. The password hasher is async and runs it in a worker thread, so logins do not stall the other requests, and at most `FASTAPI_PASSWORD_HASH_CONCURRENCY` hashes run at once per worker: a burst of logins waits in line instead of exhausting the memory (30 hashes at once: ~1.9 GiB without the cap, ~190 MiB with 2).
 - **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
@@ -282,6 +303,16 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 | `FASTAPI_REFRESH_TOKEN_REUSE_GRACE_SECONDS` | `30` | How long a rotated refresh token still works (concurrent refreshes); `0` disables it |
 | `FASTAPI_PASSWORD_HASH_CONCURRENCY` | `2` | Password hashes running at once per worker (64 MiB each); the others wait |
+| `FASTAPI_FRONTEND_URL` | `http://localhost:3000` | Base URL of the links in the emails (`/verify-email`, `/reset-password`) |
+| `FASTAPI_EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS` | `24` | Lifetime of a verification link |
+| `FASTAPI_PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` | `30` | Lifetime of a password reset link |
+| `FASTAPI_RATE_LIMIT_EMAILS_PER_HOUR` | `5` | Emails sent to the same address, whatever the IP |
+| `FASTAPI_EMAIL_BACKEND` | `console` when `FASTAPI_ENVIRONMENT=local`, `smtp` otherwise | `console` writes the emails, links included, to the logs: never use it where logs are kept |
+| `FASTAPI_EMAIL_FROM` | `no-reply@example.com` | Sender of the emails |
+| `FASTAPI_SMTP_HOST` / `FASTAPI_SMTP_PORT` | `localhost` / `587` | SMTP server |
+| `FASTAPI_SMTP_SECURITY` | `starttls` | `starttls`, `ssl` (port 465) or `none` |
+| `FASTAPI_SMTP_USERNAME` / `FASTAPI_SMTP_PASSWORD` | — | SMTP credentials |
+| `FASTAPI_SMTP_TIMEOUT_SECONDS` | `10` | SMTP connection timeout |
 | `FASTAPI_RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE` | `5` | Login and linking attempts per account and IP |
 | `FASTAPI_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE` | `30` | Authentication requests per IP (registration, login, Google) |
 | `FASTAPI_RATE_LIMIT_REGISTRATIONS_PER_HOUR` | `10` | Registrations per IP |
@@ -307,6 +338,7 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
 - [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (expired refresh tokens and rate limit counters).
 - [ ] **Monitoring**: `SENTRY_DSN`; probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
+- [ ] **Emails**: `FASTAPI_SMTP_*` and `FASTAPI_EMAIL_FROM` for your provider (a domain with SPF and DKIM, or the emails land in spam), and `FASTAPI_FRONTEND_URL` pointing to the frontend that serves `/verify-email` and `/reset-password`. A failed delivery shows up in the logs as `email_not_sent`.
 - [ ] **Google sign-in** (if used): the production origins in the OAuth client, and `FASTAPI_GOOGLE_CLIENT_ID`.
 
 ## Using it as a template
@@ -329,6 +361,8 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [x] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
 - [x] Architecture documentation, ADRs, Claude Code conventions, CI vulnerability scan and Docker cache
 - [x] Structured JSON logs with a request id, `seed` and `shell` management commands
+- [x] Hardening from external reviews: password hashing off the event loop, rate limits, concurrent refreshes, explicit account linking, streamed exports
+- [x] Email verification and password reset
 - [ ] Copier template with optional modules (authentication, background jobs, Sentry) and the `v2.0.0` release
 
 ## License

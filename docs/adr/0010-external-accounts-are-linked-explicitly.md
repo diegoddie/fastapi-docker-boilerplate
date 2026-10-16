@@ -1,6 +1,6 @@
 # 0010. External accounts are linked explicitly, never by email
 
-- Status: Accepted
+- Status: Accepted, amended by [0012](0012-email-verification-and-password-reset.md)
 - Date: 2026-10-14
 - Amends: [0007](0007-google-sign-in-with-id-tokens.md)
 
