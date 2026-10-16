@@ -32,7 +32,7 @@ jobs:
       FASTAPI_SECRET_KEY: ci-only-secret-key-for-the-test-suite-0123456789
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       # Why: the image layers are cached between runs, so only what changed is
       # rebuilt; compose.yaml stays the single description of the build.
       - name: Build
