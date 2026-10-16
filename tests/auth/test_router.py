@@ -12,12 +12,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import RefreshToken
 from app.auth.security import password_hasher
-from app.auth.services import hash_refresh_token
+from app.auth.services import hash_token
 from app.core.config import settings
+from app.emails.services import EmailMessage
 from app.users.models import User
 from tests.factories.users import TEST_PASSWORD, UserFactory
 from tests.pytest_plugins.auth import FakeIdentityProvider, RecordingPasswordHasher
-from tests.utils import AsyncClient
+from tests.utils import AsyncClient, email_token
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -43,6 +44,7 @@ async def test_register_user_route_201(
             "id": IsUUID,
             "groups": ["member"],
             "isActive": True,
+            "isEmailVerified": False,
             "datetimeCreated": IsDatetime(iso_string=True),
         }
     )
@@ -137,7 +139,7 @@ async def test_login_user_route_200(
     )
     stored = (await async_db_session.exec(select(RefreshToken))).one()
     assert stored.user_id == bob_member_user.id
-    assert stored.token_hash == hash_refresh_token(tokens["refresh_token"])
+    assert stored.token_hash == hash_token(tokens["refresh_token"])
     assert stored.datetime_revoked is None
     response = await async_client.get(
         "/api/v1/users/user/me/",
@@ -313,6 +315,25 @@ async def test_route_hashes_passwords_outside_transactions(
     """Test no route waits for a password hash holding a database connection."""
     async_client.login(bob_member_user)
     await async_client.post(url, **request_kwargs)
+    assert recording_password_hasher.in_transaction == [False]
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_reset_password_route_hashes_outside_transactions(
+    async_client: AsyncClient,
+    bob_member_user: User,
+    email_outbox: list[EmailMessage],
+    recording_password_hasher: RecordingPasswordHasher,
+) -> None:
+    """Test resetting a password does not hash holding a database connection."""
+    await async_client.post(
+        "/api/v1/auth/password/forgot/", json={"email": "bob@example.com"}
+    )
+    response = await async_client.post(
+        "/api/v1/auth/password/reset/",
+        json={"token": email_token(email_outbox[0]), "password": "a-brand-new-one"},
+    )
+    assert response.status_code == status.HTTP_204_NO_CONTENT
     assert recording_password_hasher.in_transaction == [False]
 
 

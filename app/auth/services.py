@@ -11,27 +11,31 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlmodel import col, delete, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.auth.emails import email_verification_message, password_reset_message
+from app.auth.enums import TokenPurpose
 from app.auth.identity import (
     ExternalIdentityClaims,
     IdentityProvider,
     IdentityProviderUnavailableError,
     InvalidIdentityTokenError,
 )
-from app.auth.models import ExternalIdentity, RefreshToken
+from app.auth.models import ExternalIdentity, OneTimeToken, RefreshToken
 from app.auth.schemas import TokenPublicSchemaResponse
 from app.auth.security import AccessTokenCodec, PasswordHasher
 from app.core.config import settings
 from app.core.exceptions import (
+    BadRequestHTTPException,
     ConflictHTTPException,
     ForbiddenHTTPException,
     ServiceUnavailableHTTPException,
     UnauthorizedHTTPException,
 )
+from app.emails.services import EmailSender
 from app.users.models import User
 
 
-def hash_refresh_token(token: str) -> str:
-    """Return the SHA-256 hash under which a refresh token is stored."""
+def hash_token(token: str) -> str:
+    """Return the SHA-256 hash under which a token is stored."""
     return hashlib.sha256(token.encode()).hexdigest()
 
 
@@ -94,6 +98,13 @@ class AuthService:
         hasher: PasswordHasher,
     ) -> None:
         """Link an external account to a user, who confirms with their password."""
+        # Why: an account nobody proved to own (someone else may have registered
+        # the address) must not collect more ways in.
+        if not user.is_email_verified:
+            raise ForbiddenHTTPException(
+                message="Verify your email address before linking an account.",
+                error_code="EMAIL_NOT_VERIFIED",
+            )
         # Why: linking adds a way to sign in, so a stolen access token alone must
         # not be enough to keep a door open into the account.
         if user.password_hash is None or not await hasher.verify(
@@ -118,6 +129,76 @@ class AuthService:
             )
 
     @staticmethod
+    async def request_email_verification(
+        user: User, session: AsyncSession, sender: EmailSender
+    ) -> None:
+        """Email a link to verify the address, unless it is already verified."""
+        if user.is_email_verified:
+            return
+        token = await AuthService._issue_one_time_token(
+            user,
+            TokenPurpose.VERIFY_EMAIL,
+            timedelta(hours=settings.EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS),
+            session,
+        )
+        await sender.send(email_verification_message(user, token))
+
+    @staticmethod
+    async def verify_email(token: str, session: AsyncSession) -> None:
+        """Mark the address of the token's user as verified."""
+        user = await AuthService._consume_one_time_token(
+            token, TokenPurpose.VERIFY_EMAIL, session
+        )
+        user.datetime_email_verified = datetime.now(UTC)
+        session.add(user)
+        await session.commit()
+
+    @staticmethod
+    async def request_password_reset(
+        email: str, session: AsyncSession, sender: EmailSender
+    ) -> None:
+        """Email a link to choose a new password, if an active user has the email."""
+        user = (
+            await session.exec(select(User).where(User.email == email.lower()))
+        ).one_or_none()
+        # Why: the caller answers the same either way, so nobody learns which
+        # emails are registered.
+        if user is None or not user.is_active:
+            return
+        token = await AuthService._issue_one_time_token(
+            user,
+            TokenPurpose.RESET_PASSWORD,
+            timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+            session,
+        )
+        await sender.send(password_reset_message(user, token))
+
+    @staticmethod
+    async def reset_password(
+        token: str, password: str, session: AsyncSession, hasher: PasswordHasher
+    ) -> None:
+        """Set a new password and end every session of the token's user."""
+        user = await AuthService._consume_one_time_token(
+            token, TokenPurpose.RESET_PASSWORD, session
+        )
+        # Why: the token is used up before the slow hash, which must not run
+        # while a transaction holds a connection.
+        await session.commit()
+        password_hash = await hasher.hash(password)
+        now = datetime.now(UTC)
+        if user.is_email_verified:
+            await AuthService._revoke(
+                col(RefreshToken.user_id) == user.id, session, now
+            )
+        else:
+            # Why: opening the link proves, for the first time, who owns the
+            # address: whatever was set up before is not trusted.
+            await AuthService._take_over(user, session, now)
+        user.password_hash = password_hash
+        session.add(user)
+        await session.commit()
+
+    @staticmethod
     async def issue_tokens(
         user: User,
         session: AsyncSession,
@@ -130,7 +211,7 @@ class AuthService:
             RefreshToken(
                 user_id=user.id,
                 family_id=family_id or uuid7(),
-                token_hash=hash_refresh_token(refresh_token),
+                token_hash=hash_token(refresh_token),
                 datetime_expires=datetime.now(UTC)
                 + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
             )
@@ -152,7 +233,7 @@ class AuthService:
         token = (
             await session.exec(
                 select(RefreshToken)
-                .where(RefreshToken.token_hash == hash_refresh_token(refresh_token))
+                .where(RefreshToken.token_hash == hash_token(refresh_token))
                 .options(
                     selectinload(cast(InstrumentedAttribute[User], RefreshToken.user))
                 )
@@ -187,7 +268,7 @@ class AuthService:
         token = (
             await session.exec(
                 select(RefreshToken).where(
-                    RefreshToken.token_hash == hash_refresh_token(refresh_token)
+                    RefreshToken.token_hash == hash_token(refresh_token)
                 )
             )
         ).one_or_none()
@@ -218,6 +299,84 @@ class AuthService:
         )
         await session.commit()
         return result.rowcount
+
+    @staticmethod
+    async def purge_expired_one_time_tokens(session: AsyncSession) -> int:
+        """Delete the expired single-use tokens, returning how many were deleted."""
+        result = await session.exec(
+            delete(OneTimeToken).where(
+                col(OneTimeToken.datetime_expires) <= datetime.now(UTC)
+            )
+        )
+        await session.commit()
+        return result.rowcount
+
+    @staticmethod
+    async def _issue_one_time_token(
+        user: User, purpose: TokenPurpose, lifetime: timedelta, session: AsyncSession
+    ) -> str:
+        """Return a new single-use token, replacing the user's previous ones."""
+        await session.exec(
+            delete(OneTimeToken).where(
+                col(OneTimeToken.user_id) == user.id,
+                col(OneTimeToken.purpose) == purpose,
+            )
+        )
+        token = secrets.token_urlsafe(32)
+        session.add(
+            OneTimeToken(
+                user_id=user.id,
+                purpose=purpose,
+                token_hash=hash_token(token),
+                datetime_expires=datetime.now(UTC) + lifetime,
+            )
+        )
+        await session.commit()
+        return token
+
+    @staticmethod
+    async def _consume_one_time_token(
+        token: str, purpose: TokenPurpose, session: AsyncSession
+    ) -> User:
+        """Delete a valid single-use token and return its user (the caller commits)."""
+        one_time_token = (
+            await session.exec(
+                select(OneTimeToken)
+                .where(
+                    OneTimeToken.token_hash == hash_token(token),
+                    OneTimeToken.purpose == purpose,
+                )
+                .options(
+                    selectinload(cast(InstrumentedAttribute[User], OneTimeToken.user))
+                )
+                .with_for_update()
+            )
+        ).one_or_none()
+        if (
+            one_time_token is None
+            or one_time_token.datetime_expires <= datetime.now(UTC)
+            or not one_time_token.user.is_active
+        ):
+            raise BadRequestHTTPException(
+                message="Invalid or expired token.", error_code="INVALID_TOKEN"
+            )
+        await session.delete(one_time_token)
+        return one_time_token.user
+
+    @staticmethod
+    async def _take_over(user: User, session: AsyncSession, now: datetime) -> None:
+        """
+        Hand an unverified account to whoever just proved they own the address.
+
+        Why: whoever registered the address before may not own it, so every way
+        in they could have set up ends: sessions and linked external accounts.
+        The caller replaces or removes the password.
+        """
+        await AuthService._revoke(col(RefreshToken.user_id) == user.id, session, now)
+        await session.exec(
+            delete(ExternalIdentity).where(col(ExternalIdentity.user_id) == user.id)
+        )
+        user.datetime_email_verified = now
 
     @staticmethod
     async def _verify_external_token(
@@ -260,17 +419,33 @@ class AuthService:
     async def _create_external_user(
         claims: ExternalIdentityClaims, session: AsyncSession
     ) -> User:
-        """Create a member for an external account signing in for the first time."""
+        """Return the user for an external account signing in for the first time."""
         # Why: without a verified email anyone could claim someone else's address.
         if not claims.email_verified:
             raise UnauthorizedHTTPException(
                 message="The email of the external account is not verified.",
                 error_code="EMAIL_NOT_VERIFIED",
             )
+        now = datetime.now(UTC)
         email = claims.email.lower()
-        if (
+        user = (
             await session.exec(select(User).where(User.email == email))
-        ).one_or_none() is not None:
+        ).one_or_none()
+        if user is None:
+            user = User(
+                email=email,
+                first_name=claims.first_name,
+                last_name=claims.last_name,
+                datetime_email_verified=now if claims.email_authoritative else None,
+            )
+        elif (
+            claims.email_authoritative and not user.is_email_verified and user.is_active
+        ):
+            # Why: nobody proved they own this address, and the provider is
+            # authoritative for it: the account belongs to the person signing in.
+            await AuthService._take_over(user, session, now)
+            user.password_hash = None
+        else:
             # Why: an external account with this email does not prove it belongs
             # to the owner of this account: someone else may have registered the
             # address with a password, or the address may have changed hands.
@@ -281,9 +456,6 @@ class AuthService:
                 ),
                 error_code="ACCOUNT_EXISTS",
             )
-        user = User(
-            email=email, first_name=claims.first_name, last_name=claims.last_name
-        )
         session.add(user)
         session.add(
             ExternalIdentity(

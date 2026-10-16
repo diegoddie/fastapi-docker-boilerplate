@@ -33,6 +33,7 @@ class UserPublicSchemaResponse(BaseUser, BasePublicSchema):
     id: UUID
     groups: list[Group]
     is_active: bool
+    is_email_verified: bool
     datetime_created: datetime
 
 

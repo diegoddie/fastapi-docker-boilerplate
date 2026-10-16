@@ -1,6 +1,7 @@
 """The users test factories."""
 
 import asyncio
+from datetime import UTC, datetime
 
 from app.auth.security import password_hasher
 from app.users.enums import Group
@@ -19,6 +20,7 @@ class UserFactory(BaseFactory[User]):
 
     password_hash = TEST_PASSWORD_HASH
     datetime_disabled = None
+    datetime_email_verified = datetime(2026, 1, 1, tzinfo=UTC)
 
     @classmethod
     def email(cls) -> str:

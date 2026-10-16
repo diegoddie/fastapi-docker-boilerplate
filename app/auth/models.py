@@ -3,11 +3,12 @@
 from datetime import datetime
 from uuid import UUID, uuid7
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Column, UniqueConstraint
 from sqlmodel import Field, Relationship
 
+from app.auth.enums import TokenPurpose
 from app.commons.models import DatetimeCreatedMixin
-from app.commons.types import UTCDateTime
+from app.commons.types import UTCDateTime, pg_enum
 from app.users.models import User
 
 
@@ -43,3 +44,21 @@ class ExternalIdentity(DatetimeCreatedMixin, table=True):
     subject: str = Field(max_length=255)
 
     __table_args__ = (UniqueConstraint("provider", "subject"),)
+
+
+class OneTimeToken(DatetimeCreatedMixin, table=True):
+    """
+    A single-use token sent by email, stored as a SHA-256 hash.
+
+    It is deleted when used, and a new one replaces the user's previous ones
+    with the same purpose, so only the latest link works.
+    """
+
+    id: UUID = Field(default_factory=uuid7, primary_key=True)
+    user_id: UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    user: User = Relationship()
+    purpose: TokenPurpose = Field(
+        sa_column=Column(pg_enum(TokenPurpose), nullable=False)
+    )
+    token_hash: str = Field(max_length=64, unique=True)
+    datetime_expires: datetime = Field(sa_type=UTCDateTime)

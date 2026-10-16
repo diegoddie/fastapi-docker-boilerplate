@@ -48,6 +48,15 @@ def test_settings_log_format_explicitly() -> None:
     assert Settings(ENVIRONMENT="remote", LOG_FORMAT="console").log_format == "console"
 
 
+def test_settings_email_backend() -> None:
+    """Test emails go to the logs locally and to SMTP remotely, unless set."""
+    assert Settings(ENVIRONMENT="local").email_backend == "console"
+    assert Settings(ENVIRONMENT="remote").email_backend == "smtp"
+    assert Settings(ENVIRONMENT="remote", EMAIL_BACKEND="console").email_backend == (
+        "console"
+    )
+
+
 def test_settings_version() -> None:
     """Test the version is read from pyproject.toml."""
     with (PROJECT_ROOT / "pyproject.toml").open("rb") as file:

@@ -8,19 +8,16 @@ from app.cli.utils import run_with_session
 from app.ratelimit.services import PostgresRateLimiter
 
 
-async def execute_purge(session: AsyncSession) -> tuple[int, int]:
-    """Delete the expired refresh tokens and rate limit counters."""
-    return (
-        await AuthService.purge_expired_tokens(session),
-        await PostgresRateLimiter.purge_expired(session),
-    )
+async def execute_purge(session: AsyncSession) -> dict[str, int]:
+    """Delete the expired data, returning how many rows of each kind went."""
+    return {
+        "refresh tokens": await AuthService.purge_expired_tokens(session),
+        "single-use tokens": await AuthService.purge_expired_one_time_tokens(session),
+        "rate limit counters": await PostgresRateLimiter.purge_expired(session),
+    }
 
 
 def purge() -> None:  # pragma: no cover
-    """Delete expired refresh tokens and rate limit counters (run it daily)."""
-    tokens, counters = run_with_session(execute_purge)
-    typer.secho(
-        f"Deleted {tokens} expired refresh tokens "
-        f"and {counters} expired rate limit counters.",
-        fg=typer.colors.GREEN,
-    )
+    """Delete expired tokens and rate limit counters (run it daily)."""
+    for kind, count in run_with_session(execute_purge).items():
+        typer.secho(f"Deleted {count} expired {kind}.", fg=typer.colors.GREEN)

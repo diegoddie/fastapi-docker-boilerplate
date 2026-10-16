@@ -53,6 +53,29 @@ async def test_google_identity_provider_verify_names(
 
 
 @pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize(
+    ("claims", "authoritative"),
+    [
+        ({}, True),
+        ({"email": "erin@example.com", "hd": "Example.com"}, True),
+        ({"email": "erin@example.com"}, False),
+        ({"email": "erin@example.com", "hd": "other.example"}, False),
+        ({"email_verified": False}, False),
+    ],
+    ids=["gmail", "workspace", "other_domain", "other_workspace", "unverified"],
+)
+async def test_google_identity_provider_verify_email_authority(
+    google_provider: GoogleIdentityProvider,
+    google_id_token: Callable[..., str],
+    claims: dict[str, Any],
+    authoritative: bool,
+) -> None:
+    """Test Google vouches for Gmail and its own Workspace domains only."""
+    identity = await google_provider.verify(google_id_token(**claims))
+    assert identity.email_authoritative is authoritative
+
+
+@pytest.mark.asyncio(loop_scope="function")
 async def test_google_identity_provider_verify_unverified_email(
     google_provider: GoogleIdentityProvider, google_id_token: Callable[..., str]
 ) -> None:

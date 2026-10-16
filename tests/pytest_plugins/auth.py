@@ -32,7 +32,7 @@ from app.auth.security import (
     get_password_hasher,
     password_hasher,
 )
-from tests.factories.auth import RefreshTokenFactory
+from tests.factories.auth import OneTimeTokenFactory, RefreshTokenFactory
 
 
 class FakeIdentityProvider:
@@ -86,6 +86,7 @@ def erin_google_identity() -> ExternalIdentityClaims:
         email_verified=True,
         first_name="Erin",
         last_name="Example",
+        email_authoritative=True,
     )
 
 
@@ -177,3 +178,9 @@ def recording_password_hasher(
     hasher = RecordingPasswordHasher(async_db_session)
     test_app.dependency_overrides[get_password_hasher] = lambda: hasher
     return hasher
+
+
+@pytest.fixture
+def one_time_token_factory(seed_factories: None) -> type[OneTimeTokenFactory]:
+    """Return the single-use token factory, bound to the test database."""
+    return OneTimeTokenFactory

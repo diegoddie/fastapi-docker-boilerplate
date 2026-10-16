@@ -51,13 +51,20 @@ class RequestContextMiddleware:
         structlog.contextvars.bind_contextvars(request_id=request_id)
         status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         start = time.perf_counter()
+        end: float | None = None
 
         async def send_with_request_id(message: Message) -> None:
             """Add the request id to the response headers."""
-            nonlocal status_code
+            nonlocal status_code, end
             if message["type"] == "http.response.start":
                 status_code = message["status"]
                 MutableHeaders(scope=message).append(REQUEST_ID_HEADER, request_id)
+            elif message["type"] == "http.response.body" and not message.get(
+                "more_body", False
+            ):
+                # Why: background tasks (e.g. emails) run after the last byte,
+                # and are not part of the time the client waited.
+                end = time.perf_counter()
             await send(message)
 
         try:
@@ -69,5 +76,5 @@ class RequestContextMiddleware:
                 method=scope["method"],
                 path=scope["path"],
                 status_code=status_code,
-                duration_ms=round((time.perf_counter() - start) * 1000, 2),
+                duration_ms=round(((end or time.perf_counter()) - start) * 1000, 2),
             )

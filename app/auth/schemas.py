@@ -1,14 +1,17 @@
 """
 The auth package schemas.
 
-Why: unlike the rest of the API these schemas are snake_case, because the token
-endpoints follow the OAuth 2.0 specification (RFC 6749), which Swagger UI's
-"Authorize" button and the OAuth client libraries rely on.
+Why: unlike the rest of the API the token schemas are snake_case, because the
+token endpoints follow the OAuth 2.0 specification (RFC 6749), which Swagger
+UI's "Authorize" button and the OAuth client libraries rely on.
 """
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+
+from app.commons.schemas import BasePublicSchema
+from app.users.schemas import Password
 
 
 class TokenPublicSchemaResponse(BaseModel):
@@ -36,3 +39,21 @@ class IdTokenLinkPublicSchemaPayload(IdTokenPublicSchemaPayload):
     """The payload to link an external account: its ID token and the password."""
 
     password: str
+
+
+class EmailPublicSchemaPayload(BasePublicSchema):
+    """The email public schema payload, to ask for a password reset link."""
+
+    email: EmailStr
+
+
+class OneTimeTokenPublicSchemaPayload(BasePublicSchema):
+    """The single-use token public schema payload, from a link in an email."""
+
+    token: str
+
+
+class PasswordResetPublicSchemaPayload(OneTimeTokenPublicSchemaPayload):
+    """The password reset public schema payload: the token and a new password."""
+
+    password: Password

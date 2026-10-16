@@ -59,6 +59,9 @@ def test_every_route_requires_authentication(test_app: FastAPI) -> None:
         "/api/v1/auth/refresh/",
         "/api/v1/auth/logout/",
         "/api/v1/auth/google/",
+        "/api/v1/auth/email/verify/",
+        "/api/v1/auth/password/forgot/",
+        "/api/v1/auth/password/reset/",
     }
     # Why: the OpenAPI schema lists a security requirement for every operation
     # that depends on the bearer token, i.e. exactly what clients will see.

@@ -27,6 +27,7 @@ docker compose run --rm backend just test               # same, inside Docker
 - `app/commons/`: base model, column types, base schemas, pagination, CSV export
 - `app/filters/`: `FilterBase` for list filters, search and ordering
 - `app/ratelimit/`: `RateLimiter` (PostgreSQL counters), `ClientIP`, `RateLimiterDep`
+- `app/emails/`: `EmailSender`, `EmailSenderDep` (sends after the response; console locally, SMTP remotely)
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
 - `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
 - `app/<domain>/`: `constants.py`, `enums.py`, `models.py`, `schemas.py`, `services.py`, `router.py` (+ `commands/`)
@@ -82,6 +83,10 @@ docker compose run --rm backend just test               # same, inside Docker
   that calls `run_with_session` (`app/cli/utils.py`) and prints with
   `typer.secho`. Local-only commands call `require_local_environment()`.
   Register them in `app/cli/main.py`.
+- **Emails**: a service takes an `EmailSender` (the route injects
+  `EmailSenderDep`) and awaits `sender.send(EmailMessage(...))`; the texts live
+  in the domain's `emails.py` (see `app/auth/emails.py`). Never put secrets or
+  tokens anywhere but the link, and never log the text.
 - **Rate limits**: a public route that checks a password, sends emails or is
   costly gets a limit dependency (see `limit_login_attempts` in
   `app/auth/dependencies.py`); the numbers are settings.
@@ -112,6 +117,9 @@ docker compose run --rm backend just test               # same, inside Docker
   call external services. Warnings are errors.
 - Tests of rate limits use the `start_of_minute` fixture (frozen clock), so a
   window never ends halfway through the test.
+- No test sends emails (the console backend is forced); read the emails a test
+  triggers with the `email_outbox` fixture, and the token of their link with
+  `email_token(message)` from `tests/utils.py`.
 - Assert logs with the `log_events` fixture: `log_events("http_request")` returns
   the structlog events with that name, as dicts.
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and

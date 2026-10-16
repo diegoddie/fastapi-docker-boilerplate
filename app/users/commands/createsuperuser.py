@@ -28,7 +28,11 @@ def createsuperuser(
         )
         user = run_with_session(
             lambda session: UserService.create(
-                payload, session, password_hasher, groups=[Group.ADMIN]
+                payload,
+                session,
+                password_hasher,
+                groups=[Group.ADMIN],
+                email_verified=True,
             )
         )
     except ValidationError as e:
