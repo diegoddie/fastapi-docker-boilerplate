@@ -304,6 +304,7 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **CORS**: `FASTAPI_CORS_ALLOWED_ORIGINS` lists the frontend origins.
 - [ ] **Behind a load balancer or reverse proxy**: set `FORWARDED_ALLOW_IPS` to its addresses (or `*` if only the proxy can reach the app). If it is missing, nothing fails: every user simply gets the proxy's address and the whole site shares the per-IP rate limits (30 logins per minute, 10 registrations per hour).
 - [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
+- [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
 - [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (expired refresh tokens and rate limit counters).
 - [ ] **Monitoring**: `SENTRY_DSN`; probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
 - [ ] **Google sign-in** (if used): the production origins in the OAuth client, and `FASTAPI_GOOGLE_CLIENT_ID`.

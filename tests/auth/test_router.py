@@ -16,7 +16,7 @@ from app.auth.services import hash_refresh_token
 from app.core.config import settings
 from app.users.models import User
 from tests.factories.users import TEST_PASSWORD, UserFactory
-from tests.pytest_plugins.auth import FakeIdentityProvider
+from tests.pytest_plugins.auth import FakeIdentityProvider, RecordingPasswordHasher
 from tests.utils import AsyncClient
 
 
@@ -271,6 +271,49 @@ async def test_route_429_auth_requests_per_ip(
     response = await async_client.post(url, **request_kwargs)
     assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
     assert response.json()["detail"]["errorCode"] == "TOO_MANY_REQUESTS"
+
+
+@pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize(
+    ("url", "request_kwargs"),
+    [
+        (
+            "/api/v1/auth/login/",
+            {"data": {"username": "bob@example.com", "password": TEST_PASSWORD}},
+        ),
+        (
+            "/api/v1/auth/login/",
+            {"data": {"username": "nobody@example.com", "password": TEST_PASSWORD}},
+        ),
+        (
+            "/api/v1/auth/register/",
+            {
+                "json": {
+                    "email": "new@example.com",
+                    "password": TEST_PASSWORD,
+                    "firstName": "New",
+                }
+            },
+        ),
+        (
+            "/api/v1/auth/google/link/",
+            {"json": {"id_token": "google-id-token", "password": TEST_PASSWORD}},
+        ),
+    ],
+    ids=["login", "login_unknown_email", "register", "google_link"],
+)
+async def test_route_hashes_passwords_outside_transactions(
+    async_client: AsyncClient,
+    bob_member_user: User,
+    google_identity_provider: FakeIdentityProvider,
+    recording_password_hasher: RecordingPasswordHasher,
+    url: str,
+    request_kwargs: dict[str, Any],
+) -> None:
+    """Test no route waits for a password hash holding a database connection."""
+    async_client.login(bob_member_user)
+    await async_client.post(url, **request_kwargs)
+    assert recording_password_hasher.in_transaction == [False]
 
 
 @pytest.mark.asyncio(loop_scope="function")
