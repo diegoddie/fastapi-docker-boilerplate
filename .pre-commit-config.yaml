@@ -55,3 +55,11 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      # copier:template:start
+      - id: template-markers
+        name: template markers and replacements
+        entry: python3 .copier/prune.py check
+        language: system
+        pass_filenames: false
+        always_run: true
+      # copier:template:end

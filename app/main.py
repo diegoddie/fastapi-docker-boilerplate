@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_pagination import add_pagination
 
 from app.api.router import router as api_router
-from app.core.config import Settings, settings
+from app.core.config import Settings, get_project_description, settings
 from app.core.constants import REQUEST_ID_HEADER
 from app.core.database import session_manager
 from app.core.handlers import register_exceptions_handlers
@@ -42,7 +42,7 @@ def create_app(app_settings: Settings = settings) -> FastAPI:
     """
     app = FastAPI(
         title="FastAPI Docker Boilerplate",
-        description="A production-ready FastAPI backend boilerplate.",
+        description=get_project_description(),
         version=app_settings.VERSION,
         debug=app_settings.DEBUG,
         docs_url=app_settings.DOCS_URL,

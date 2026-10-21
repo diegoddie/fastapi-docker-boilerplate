@@ -1,6 +1,6 @@
 # FastAPI Docker Boilerplate
 
-[![CI](https://github.com/diegoddie/fastapi-docker-boilerplate/actions/workflows/ci.yml/badge.svg)](https://github.com/diegoddie/fastapi-docker-boilerplate/actions/workflows/ci.yml)
+[![CI](https://github.com/diegoddie/fastapi-docker-boilerplate/actions/workflows/ci.yml/badge.svg)](https://github.com/diegoddie/fastapi-docker-boilerplate/actions/workflows/ci.yml) <!-- copier:template -->
 ![Python 3.14](https://img.shields.io/badge/python-3.14-3776AB?logo=python&logoColor=white)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)
 ![mypy strict](https://img.shields.io/badge/mypy-strict-2A6DB2)
@@ -9,9 +9,11 @@
 
 A production-ready starting point for FastAPI backends: async SQLModel on PostgreSQL, strict quality gates, and a Docker setup that runs the same way on your laptop, in CI and in production.
 
-It distills the conventions I use on real-world FastAPI projects into a template you can clone and start building on in minutes.
+<!-- copier:template:start -->
+It distills the conventions I use on real-world FastAPI projects into a template: [generate a project](#generate-a-project) with Copier and start building on it in minutes.
 
 > Looking for the original version? It is available at the [`v1.0.0`](https://github.com/diegoddie/fastapi-docker-boilerplate/tree/v1.0.0) tag.
+<!-- copier:template:end -->
 
 ## Features
 
@@ -53,9 +55,16 @@ It distills the conventions I use on real-world FastAPI projects into a template
 
 Requirements: [Docker](https://docs.docker.com/get-docker/) with Docker Compose.
 
+<!-- copier:template:start -->
+To try the template itself (to start a project, [generate it](#generate-a-project) instead):
+
 ```bash
 git clone https://github.com/diegoddie/fastapi-docker-boilerplate.git
 cd fastapi-docker-boilerplate
+```
+<!-- copier:template:end -->
+
+```bash
 cp .env_template .env
 docker compose up --build
 ```
@@ -341,16 +350,32 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **Emails**: `FASTAPI_SMTP_*` and `FASTAPI_EMAIL_FROM` for your provider (a domain with SPF and DKIM, or the emails land in spam), and `FASTAPI_FRONTEND_URL` pointing to the frontend that serves `/verify-email` and `/reset-password`. A failed delivery shows up in the logs as `email_not_sent`.
 - [ ] **Google sign-in** (if used): the production origins in the OAuth client, and `FASTAPI_GOOGLE_CLIENT_ID`.
 
-## Using it as a template
+<!-- copier:template:start -->
+## Generate a project
 
-1. Click **Use this template** on GitHub, or clone the repository.
-2. Rename the project:
-   - `name` and `description` in `pyproject.toml`, then run `uv lock`
-   - the `project` labels in the `Dockerfile`
-   - the app `title` in `app/main.py`
-   - the database and image names (`boilerplate`) in `compose.yaml` and `.env_template`
-3. Update the copyright holder in `LICENSE`.
-4. Start adding your domain packages under `app/`.
+The repository is a [Copier](https://copier.readthedocs.io/) template: Copier asks a few questions and writes a new project with your name, description and author, ready to commit. Requirements: [uv](https://docs.astral.sh/uv/getting-started/installation/) and git.
+
+```bash
+uvx copier copy --trust gh:diegoddie/fastapi-docker-boilerplate my-api
+```
+
+Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the latest release, `v1.0.0`, which is not a Copier template.
+
+| Question | Example | Used for |
+|---|---|---|
+| `project_name` | Acme Billing API | README and API docs title |
+| `project_slug` | acme-billing-api (derived) | package, Docker image and database names |
+| `project_description` | Invoices and payments for Acme. | `pyproject.toml`, README, API docs |
+| `author_name`, `author_email` | Jane Doe, jane@example.com | `pyproject.toml`, license |
+| `copyright_year` | 2026 (this year) | license |
+
+`--trust` lets Copier run `.copier/prune.py`, which writes the answers into the project and re-locks the dependencies with uv. The answers are saved in `.copier-answers.yml`: commit it, and later bring in the template's improvements with:
+
+```bash
+uvx copier update --trust
+```
+
+Copier merges the changes with yours; review them with `git diff` (and any `.rej` file) before committing. How the template works: [ADR 0013](docs/adr/0013-the-template-prunes-a-working-app.md).
 
 ## Roadmap
 
@@ -364,6 +389,7 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [x] Hardening from external reviews: password hashing off the event loop, rate limits, concurrent refreshes, explicit account linking, streamed exports
 - [x] Email verification and password reset
 - [ ] Copier template with optional modules (authentication, background jobs, Sentry) and the `v2.0.0` release
+<!-- copier:template:end -->
 
 ## License
 

@@ -3,7 +3,7 @@
 import tomllib
 from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, PostgresDsn, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,10 +12,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @cache
-def get_project_version() -> str:
-    """Return the project version, declared once in pyproject.toml."""
+def get_project_metadata() -> dict[str, Any]:
+    """Return the project metadata, declared once in pyproject.toml."""
     with (PROJECT_ROOT / "pyproject.toml").open("rb") as file:
-        return str(tomllib.load(file)["project"]["version"])
+        return dict(tomllib.load(file)["project"])
+
+
+def get_project_version() -> str:
+    """Return the project version."""
+    return str(get_project_metadata()["version"])
+
+
+def get_project_description() -> str:
+    """Return the project description."""
+    return str(get_project_metadata()["description"])
 
 
 class Settings(BaseSettings):

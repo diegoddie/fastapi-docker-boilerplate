@@ -5,7 +5,12 @@ import tomllib
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import PROJECT_ROOT, Settings, get_project_version
+from app.core.config import (
+    PROJECT_ROOT,
+    Settings,
+    get_project_description,
+    get_project_version,
+)
 
 
 def test_settings_docs_enabled_by_environment() -> None:
@@ -63,6 +68,13 @@ def test_settings_version() -> None:
         version = tomllib.load(file)["project"]["version"]
     assert get_project_version() == version
     assert version == Settings().VERSION
+
+
+def test_project_description() -> None:
+    """Test the description is read from pyproject.toml."""
+    with (PROJECT_ROOT / "pyproject.toml").open("rb") as file:
+        description = tomllib.load(file)["project"]["description"]
+    assert get_project_description() == description
 
 
 def test_settings_secret_key_too_short() -> None:

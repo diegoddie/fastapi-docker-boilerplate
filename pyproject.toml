@@ -3,6 +3,7 @@ name = "fastapi-docker-boilerplate"
 version = "0.1.0"
 description = "Production-ready FastAPI boilerplate: async SQLModel, PostgreSQL, uv, Docker and 100% test coverage."
 readme = "README.md"
+authors = [{ name = "Diego Lauricella", email = "diego.boost@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = [
     "alembic~=1.20.0",
@@ -51,6 +52,11 @@ local = [
     "pyclean~=3.7.0",
     "rust-just~=1.58.0",
 ]
+# copier:template:start
+template = [
+    "copier~=9.19.1",
+]
+# copier:template:end
 
 [tool.bandit]
 exclude_dirs = [".venv", "tests"]
@@ -79,6 +85,10 @@ filterwarnings = ["error"]
 
 [tool.ruff]
 target-version = "py314"
+# copier:template:start
+# Why: Copier runs the template's scripts with its own Python, possibly older.
+per-file-target-version = { ".copier/*.py" = "py310" }
+# copier:template:end
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -108,6 +118,11 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "app/migrations/*.py" = ["D100", "D101", "D102", "D104"]
 "tests/**/*.py" = ["S101", "S105", "S106", "S107"]
+# copier:template:start
+# Why: command-line scripts print to stderr and run uv.
+".copier/*.py" = ["S603", "T201"]
+".copier/tests/*.py" = ["S101", "T201"]
+# copier:template:end
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

@@ -125,6 +125,29 @@ docker compose run --rm backend just test               # same, inside Docker
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and
   optional imports.
 
+<!-- copier:template:start -->
+## Template maintenance
+
+This repository is also a Copier template ([ADR 0013](docs/adr/0013-the-template-prunes-a-working-app.md)):
+`main` is the full app, and generating a project removes what its answers
+leave out.
+
+- Module code lives in its own package and files; in shared files (settings,
+  routers, model registry, `pyproject.toml`, compose, docs) wrap a module's
+  lines in `# copier:<module>:start` / `# copier:<module>:end`, or end a single
+  line with `# copier:<module>` (HTML comments in Markdown, at the end of a
+  table row). `!<module>` keeps lines only when the module is off;
+  `template` marks what only the template needs.
+- Module code is an addition, never an alternative: an import, an item of a
+  multi-line list (with a trailing comma), a settings block, a router include.
+- A new module needs its question in `copier.yml`, its paths in `_exclude`,
+  its name in `MODULES` (`.copier/prune.py`), answer sets in
+  `.copier/answers/`, and an ADR.
+- Check with `uv run --group template python .copier/prune.py check`,
+  `just template-render .copier/answers/acme.yml /tmp/acme` (renders the
+  working tree) and the template CI.
+
+<!-- copier:template:end -->
 ## Definition of done
 
 `just fix` clean, `just test` green with 100% coverage, migration created and
