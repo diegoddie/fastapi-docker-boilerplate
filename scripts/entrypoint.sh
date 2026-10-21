@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-# Apply pending migrations before starting any command.
-alembic upgrade head
+# Apply pending migrations before starting any command (every branch: the main
+# one and those of the optional modules).
+alembic upgrade heads
 
 COMMAND=("uv" "run")
 COMMAND+=("$@")

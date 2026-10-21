@@ -180,6 +180,13 @@ the user's reach answers `404`, so the API never reveals that it exists.
   entrypoint, under a Postgres advisory lock so that replicas starting together
   do not migrate in parallel. `alembic check` in the test script fails if a model
   changed without a migration.
+- **Branches**: the app's migrations form the `main` branch; an optional module
+  with tables keeps its own branch, in its own folder of
+  `app/migrations/versions/`, starting from the revision that creates `user`.
+  Leaving the module out of a project drops its folder and its tables with it.
+  The entrypoint and `just migrate-forward` run `alembic upgrade heads`; `just
+  forge` adds to `main`, `just forge-module <module>` to a module's branch
+  ([ADR 0014](adr/0014-migrations-in-branches.md)).
 
 ## Lists
 

@@ -64,7 +64,7 @@ needed, whether a CSV export is useful.
 Run `just migrate-forward`, then `just forge "add <resource> table"`, and read
 the generated file: enum types, foreign keys with `ondelete`, constraint names,
 `postgresql_where` on partial indexes.
-Check that `just migrate-backward -1` and `just migrate-forward` both work.
+Check that `just migrate-backward main@-1` and `just migrate-forward` both work.
 
 ## 4. Tests
 

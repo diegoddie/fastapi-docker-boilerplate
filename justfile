@@ -63,15 +63,25 @@ report:
 runserver:
     uv run uvicorn app.main:app --reload
 
-# Create a new Alembic migration from the models
+# Create a new Alembic migration from the models, in the main branch
 [group("fastapi")]
 forge MESSAGE:
-    uv run alembic revision --autogenerate -m "{{MESSAGE}}"
+    uv run alembic revision --autogenerate --head main@head -m "{{MESSAGE}}"
 
-# Apply all pending migrations
+# Create a new Alembic migration in the branch of an optional module
+[group("fastapi")]
+forge-module MODULE MESSAGE:
+    uv run alembic revision --autogenerate --head {{MODULE}}@head -m "{{MESSAGE}}"
+
+# Apply all pending migrations, of every branch
 [group("fastapi")]
 migrate-forward:
-    uv run alembic upgrade head
+    uv run alembic upgrade heads
+
+# Merge branches that diverged (e.g. after a template update) into one head
+[group("fastapi")]
+migrate-merge:
+    uv run alembic merge heads -m "merge heads"
 
 # Roll back migrations to a revision
 [group("fastapi")]

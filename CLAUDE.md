@@ -12,7 +12,7 @@ docker compose up -d postgres && just migrate-forward   # database for tests and
 just fix                  # format, auto-fix lint, mypy strict: run after every change
 just test                 # check + alembic check + tests in parallel, 100% branch coverage required
 just pytest tests/todos -k create   # a subset, with output
-just forge "add invoice table"      # migration from the models, then review it
+just forge "add invoice table"      # migration from the models (main branch), then review it
 just audit                # known vulnerabilities in the locked dependencies
 just manage users createsuperuser
 just manage seed          # demo users (Alice admin, Bob member, Carol viewer) and todos, local only
@@ -143,6 +143,13 @@ leave out.
 - A new module needs its question in `copier.yml`, its paths in `_exclude`,
   its name in `MODULES` (`.copier/prune.py`), answer sets in
   `.copier/answers/`, and an ADR.
+- A module with tables starts its own migration branch
+  ([ADR 0014](docs/adr/0014-migrations-in-branches.md)): add
+  `%(here)s/versions/<module>` to `version_locations` in `alembic.ini`, between
+  block markers, then `uv run alembic revision --autogenerate --head base
+  --branch-label <module> --depends-on 57fac5921361
+  --version-path "$PWD/app/migrations/versions/<module>" -m "..."`; later
+  migrations come from `just forge-module <module> "..."`.
 - Check with `uv run --group template python .copier/prune.py check`,
   `just template-render .copier/answers/acme.yml /tmp/acme` (renders the
   working tree) and the template CI.

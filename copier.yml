@@ -61,6 +61,9 @@ _message_after_update: |
     just migrate-forward
     just test
 
+  If `just forge` reports multiple heads (the update added migrations next to
+  yours), run `just migrate-merge` first.
+
 project_name:
   type: str
   help: The project name, in words (README and API docs title)

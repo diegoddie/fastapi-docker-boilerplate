@@ -75,6 +75,11 @@ jobs:
       - name: Run the project's checks and tests
         working-directory: ${{ env.PROJECT }}
         run: docker compose run --rm backend
+      - name: Check the migrations go down and up again
+        working-directory: ${{ env.PROJECT }}
+        run: >-
+          docker compose run --rm backend
+          sh -c "alembic downgrade base && alembic upgrade heads && alembic check"
       - name: Check generating again changes nothing
         working-directory: ${{ env.PROJECT }}
         run: |
