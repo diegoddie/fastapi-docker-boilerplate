@@ -2,6 +2,6 @@
 
 set -euo pipefail
 
-# Why: parallel workers cost more than they save on a small suite; pass `-n auto`
-# (e.g. `just test -n auto`) once the suite grows.
-uv run pytest --cov "$@"
+# Why: one worker per CPU (each with its own test database) halves the suite
+# time; arguments come after, so `just test -n 0` runs it in a single process.
+uv run pytest --cov -n auto "$@"

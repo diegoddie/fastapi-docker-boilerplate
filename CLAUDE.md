@@ -10,7 +10,7 @@ mirror it. Architecture and the reasons behind it: `docs/ARCHITECTURE.md`,
 ```bash
 docker compose up -d postgres && just migrate-forward   # database for tests and server
 just fix                  # format, auto-fix lint, mypy strict: run after every change
-just test                 # check + alembic check + tests, 100% branch coverage required
+just test                 # check + alembic check + tests in parallel, 100% branch coverage required
 just pytest tests/todos -k create   # a subset, with output
 just forge "add invoice table"      # migration from the models, then review it
 just audit                # known vulnerabilities in the locked dependencies
