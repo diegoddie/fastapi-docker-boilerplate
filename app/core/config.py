@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # in a terminal, so by default it is used only in remote environments.
     LOG_FORMAT: Literal["console", "json"] | None = None
 
+    # copier:sentry:start
+    # Sentry (the DSN and the environment are read by sentry-sdk itself)
+    SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.0, ge=0, le=1)
+
+    # copier:sentry:end
     # Database
     DATABASE_URL: PostgresDsn
     DATABASE_POOL_SIZE: int = 5

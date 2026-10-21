@@ -37,7 +37,7 @@ from pathlib import Path
 
 # The optional modules: each one is a boolean answer with the same name, except
 # "template", which a generated project never has.
-MODULES = frozenset({"template"})
+MODULES = frozenset({"sentry", "template"})
 
 SKIPPED_DIRS = frozenset(
     {

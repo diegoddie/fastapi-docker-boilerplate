@@ -24,7 +24,7 @@ dependencies = [
 
 [dependency-groups]
 remote = [
-    "sentry-sdk~=2.72.0",
+    "sentry-sdk~=2.72.0",  # copier:sentry
     "uvicorn-worker~=0.4.0",
 ]
 test = [

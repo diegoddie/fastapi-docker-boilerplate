@@ -113,12 +113,3 @@ def get_request_id() -> str | None:
     """Return the id of the request being handled, if any."""
     request_id: str | None = structlog.contextvars.get_contextvars().get("request_id")
     return request_id
-
-
-def add_request_id_to_sentry_event(
-    event: dict[str, Any], hint: dict[str, Any]
-) -> dict[str, Any]:
-    """Tag a Sentry event with the request id, to find the logs of its request."""
-    if request_id := get_request_id():
-        event.setdefault("tags", {})["request_id"] = request_id
-    return event

@@ -4,3 +4,4 @@ project_description: 'Invoices, "quotes" and payments for Acme: déjà vu.'
 author_name: Jane Doe
 author_email: jane@example.com
 copyright_year: "2026"
+sentry: true

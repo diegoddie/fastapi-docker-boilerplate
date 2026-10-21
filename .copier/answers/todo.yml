@@ -3,3 +3,4 @@ project_name: Todo
 author_name: John Smith
 author_email: john.smith@example.org
 copyright_year: "2026"
+sentry: false

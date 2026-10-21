@@ -25,6 +25,11 @@ _exclude:
   - .pytest_cache
   - .ruff_cache
   - .claude/settings.local.json
+  - |-
+    {%- if not sentry %}
+    app/core/sentry.py
+    tests/core/test_sentry.py
+    {%- endif %}
 _tasks:
   - - "{{ _copier_python }}"
     - "{{ _copier_conf.src_path }}/.copier/prune.py"
@@ -92,3 +97,7 @@ copyright_year:
   type: str
   help: The year in the license
   default: "{{ '%Y' | strftime }}"
+sentry:
+  type: bool
+  help: Report unexpected errors to Sentry from the remote image (enabled by SENTRY_DSN)
+  default: true
