@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from prune import BLOCK, LINE, text_files
+from prune import BLOCK, LINE, MODULES, text_files
 
 # The template's identity, which no generated project may keep (outside the
 # ADRs, which record the history of decisions as written).
@@ -22,6 +22,8 @@ TEMPLATE_IDENTITY = (
     "Diego Lauricella",
     "diego.boost",
 )
+# The words that betray a module left in a project that turned it off.
+MODULE_KEYWORDS = {"sentry": ("sentry",)}
 ANSWERS_FILE = ".copier-answers.yml"
 TEMPLATE_ONLY_PATHS = (
     ".copier",
@@ -31,8 +33,26 @@ TEMPLATE_ONLY_PATHS = (
 )
 
 
+def read_answers(path: Path) -> dict[str, str]:
+    """Return the top-level answers of an answers file, as strings."""
+    answers = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition(":")
+        if separator and not line.startswith((" ", "#")):
+            answers[key] = value.strip()
+    return answers
+
+
 def leftovers(root: Path) -> list[str]:
     """Return what the template left in a generated project."""
+    answers_path = root / ANSWERS_FILE
+    answers = read_answers(answers_path) if answers_path.exists() else {}
+    keywords = [
+        keyword
+        for module in sorted(MODULES - {"template"})
+        if answers.get(module) != "true"
+        for keyword in MODULE_KEYWORDS.get(module, ())
+    ]
     problems = [
         f"{path} exists" for path in TEMPLATE_ONLY_PATHS if (root / path).exists()
     ]
@@ -49,13 +69,14 @@ def leftovers(root: Path) -> list[str]:
                 for identity in TEMPLATE_IDENTITY
                 if identity in line
             )
-    answers = root / ANSWERS_FILE
-    if not answers.exists():
+            problems.extend(
+                f"{relative}:{number}: {keyword!r} of a module turned off"
+                for keyword in keywords
+                if keyword in line.lower()
+            )
+    if not answers_path.exists():
         problems.append(".copier-answers.yml is missing")
-    elif not {"_commit:", "_src_path:"} <= {
-        line.split(" ", 1)[0]
-        for line in answers.read_text(encoding="utf-8").splitlines()
-    }:
+    elif not {"_commit", "_src_path"} <= answers.keys():
         problems.append(".copier-answers.yml lacks _commit or _src_path")
     return problems
 

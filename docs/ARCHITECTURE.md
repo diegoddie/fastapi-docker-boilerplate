@@ -209,7 +209,7 @@ Every error has the same body, so clients can rely on a machine-readable code:
 | Invalid request | 422 | `VALIDATION_ERROR`, with an `errors` list that never echoes the input |
 | Rate limit exceeded | 429 | `TOO_MANY_REQUESTS`, with a `Retry-After` header |
 | Unique / foreign key / not null violation | 409 / 422 | `CONFLICT` / `UNPROCESSABLE`, without database details |
-| Anything unexpected | 500 | `SERVER_ERROR`, with the `requestId` (the traceback goes to the logs and Sentry) |
+| Anything unexpected | 500 | `SERVER_ERROR`, with the `requestId` (the traceback goes to the logs) |
 
 ## Logs
 
@@ -243,8 +243,11 @@ A request line in production:
   or another service sets a safe one, so a request can be followed across
   services; otherwise it is generated.
 - Unexpected errors answer `500` with the `requestId` in the body and the
-  header, and Sentry events are tagged with it: from a bug report to the
-  traceback in one search.
+  header: from a bug report to the traceback in one search.
+<!-- copier:sentry:start -->
+- With Sentry, unexpected errors are reported there too, tagged with the same
+  request id, without personal data (`app/core/sentry.py`).
+<!-- copier:sentry:end -->
 - Health checks are logged at debug level, so probes do not flood the logs.
 - Application code logs events with fields:
   `structlog.get_logger(__name__).info("todo_created", todo_id=str(todo.id))`;
@@ -278,9 +281,13 @@ One Dockerfile, three targets sharing the same base layer:
 
 The entrypoint applies the migrations, then starts the command. `/api/health/`
 answers as long as the process runs (liveness); `/api/ready/` also checks the
-database (readiness); both accept `GET` and `HEAD`. Configuration comes from `FASTAPI_*` environment
-variables; Sentry is enabled when the `remote` dependency group is installed and
+database (readiness); both accept `GET` and `HEAD`. Configuration comes from
+`FASTAPI_*` environment variables.
+<!-- copier:sentry:start -->
+
+Sentry is enabled when the `remote` dependency group is installed and
 `SENTRY_DSN` is set.
+<!-- copier:sentry:end -->
 
 Management commands run with `just manage <command>` (Typer): `seed` fills a
 local database with demo users and todos, `shell` opens IPython with the

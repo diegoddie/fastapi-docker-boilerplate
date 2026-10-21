@@ -225,6 +225,19 @@ def test_leftovers_none(tmp_path: Path) -> None:
     assert leftovers(tmp_path) == []
 
 
+def test_leftovers_module_off(tmp_path: Path) -> None:
+    """Test a module turned off leaves no trace, and one turned on may."""
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v2.0.0\n_src_path: gh:x/y\nsentry: false\n"
+    )
+    (tmp_path / "main.py").write_text("init_sentry(settings)\n")
+    assert leftovers(tmp_path) == ["main.py:1: 'sentry' of a module turned off"]
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v2.0.0\n_src_path: gh:x/y\nsentry: true\n"
+    )
+    assert leftovers(tmp_path) == []
+
+
 def test_leftovers(tmp_path: Path) -> None:
     """Test the render check finds markers, identity and template-only files."""
     (tmp_path / ".copier").mkdir()

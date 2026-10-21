@@ -12,19 +12,12 @@ from app.core.config import Settings, get_project_description, settings
 from app.core.constants import REQUEST_ID_HEADER
 from app.core.database import session_manager
 from app.core.handlers import register_exceptions_handlers
-from app.core.logs import add_request_id_to_sentry_event, configure_logging
+from app.core.logs import configure_logging
 from app.core.middleware import RequestContextMiddleware
+from app.core.sentry import init_sentry  # copier:sentry
 
 configure_logging(settings)
-
-try:
-    import sentry_sdk
-except ModuleNotFoundError:  # pragma: no cover
-    pass
-else:  # pragma: no cover
-    # Why: sentry-sdk is installed only in the `remote` dependency group. The DSN
-    # is read from SENTRY_DSN and the FastAPI integration is enabled automatically.
-    sentry_sdk.init(before_send=add_request_id_to_sentry_event)
+init_sentry(settings)  # copier:sentry
 
 
 @asynccontextmanager

@@ -21,6 +21,7 @@ services:
       - FASTAPI_LOG_FORMAT
       - FASTAPI_LOG_LEVEL
       - FASTAPI_SECRET_KEY
+      - FASTAPI_SENTRY_TRACES_SAMPLE_RATE  # copier:sentry
       - FASTAPI_SMTP_HOST
       - FASTAPI_SMTP_PASSWORD
       - FASTAPI_SMTP_PORT
@@ -30,7 +31,8 @@ services:
       - INTERNAL_SERVICE_PORT=${BACKEND_SERVICE_PORT:-8000}
       - PYTHONBREAKPOINT
       - PYTHONDEVMODE
-      - SENTRY_DSN
+      - SENTRY_DSN  # copier:sentry
+      - SENTRY_ENVIRONMENT  # copier:sentry
     ports:
       - "${BACKEND_PORT:-8000}:${BACKEND_SERVICE_PORT:-8000}"
     user: ${USER:-appuser}

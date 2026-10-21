@@ -27,7 +27,8 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **UTC-only datetimes**: a custom column type rejects naive datetimes at the database boundary
 - **Alembic migrations** with a constraint naming convention and date-prefixed revisions, applied automatically when the container starts and safe with several replicas (advisory lock)
 - **Health checks**: `/api/health/` for liveness and `/api/ready/` for readiness (database reachable)
-- **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, included in `500` responses and attached to Sentry events
+- **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, and included in `500` responses
+- **Error reporting with Sentry**: unexpected errors of the `remote` image go to Sentry once `SENTRY_DSN` is set, tagged with the request id, without personal data <!-- copier:sentry -->
 - **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
 - **Quality gates**: ruff with an extended rule set, mypy in strict mode, bandit, and **100% branch coverage** enforced
 - **Realistic tests**: a real PostgreSQL database where every test is rolled back, factories, named personas, full-response snapshots, and a guard test that fails if a route is left without authentication
@@ -49,7 +50,8 @@ It distills the conventions I use on real-world FastAPI projects into a template
 | Quality | ruff, mypy (strict), bandit, pre-commit |
 | Testing | pytest, pytest-asyncio, pytest-cov, pytest-mock, pytest-xdist, polyfactory, inline-snapshot, dirty-equals, time-machine |
 | Tooling | uv, just, Docker, Docker Compose, GitHub Actions, Dependabot |
-| Logging and monitoring | structlog, Sentry (optional, production only) |
+| Logging | structlog |
+| Monitoring | Sentry (production only) <!-- copier:sentry --> |
 
 ## Quickstart
 
@@ -270,7 +272,7 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 - **Every request reads the user.** Disabling a user takes effect immediately, even while their access token is still valid; permissions are computed from the groups on every request, so changing a group needs no new login.
 - **Access rules live in one place.** Each service has a `get_where_clause(user)` used by every query, so a list, a detail, an update and a delete can never disagree on what a user may reach.
 - **Soft delete.** Deleting sets `datetime_disabled`: the row is kept (audit, recovery) but hidden from the API.
-- **Logs are data.** Every line is an event with fields, rendered as JSON in production, whatever library wrote it. A request id ties together the lines of a request, its response and its Sentry event, and the user id says who made it; the request line never contains bodies, query strings or IP addresses.
+- **Logs are data.** Every line is an event with fields, rendered as JSON in production, whatever library wrote it. A request id ties together the lines of a request and its response, and the user id says who made it; the request line never contains bodies, query strings or IP addresses.
 - **Exports are safe to open, and of any size.** CSV cells starting with `=`, `+`, `-`, `@` are prefixed with a quote, so a spreadsheet never runs them as formulas. Rows are read with a server-side cursor, 1,000 at a time, while the file is sent: memory does not grow with the export.
 - **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
 - **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
@@ -327,7 +329,9 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `FASTAPI_RATE_LIMIT_REGISTRATIONS_PER_HOUR` | `10` | Registrations per IP |
 | `FASTAPI_GOOGLE_CLIENT_ID` | — | OAuth client id that enables Sign in with Google |
 | `FASTAPI_GOOGLE_CERTS_URL` | Google's public keys URL | Where Google's signing keys are fetched from |
-| `SENTRY_DSN` | — | Enables Sentry in the `remote` image |
+| `SENTRY_DSN` | — | Enables Sentry in the `remote` image <!-- copier:sentry --> |
+| `SENTRY_ENVIRONMENT` | — | Environment name shown in Sentry (e.g. `production`) <!-- copier:sentry --> |
+| `FASTAPI_SENTRY_TRACES_SAMPLE_RATE` | `0` | Share of requests traced for Sentry performance monitoring (`0` to `1`) <!-- copier:sentry --> |
 | `WEB_CONCURRENCY` | `2` | Number of gunicorn workers |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Proxies trusted to set `X-Forwarded-For` (read by uvicorn and gunicorn). Behind a load balancer, set its addresses (or `*` if only the proxy can reach the app); otherwise every client has the proxy's address and they share the rate limits |
 
@@ -346,7 +350,8 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
 - [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
 - [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (expired refresh tokens and rate limit counters).
-- [ ] **Monitoring**: `SENTRY_DSN`; probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
+- [ ] **Monitoring**: probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
+- [ ] **Sentry**: `SENTRY_DSN` and `SENTRY_ENVIRONMENT`. <!-- copier:sentry -->
 - [ ] **Emails**: `FASTAPI_SMTP_*` and `FASTAPI_EMAIL_FROM` for your provider (a domain with SPF and DKIM, or the emails land in spam), and `FASTAPI_FRONTEND_URL` pointing to the frontend that serves `/verify-email` and `/reset-password`. A failed delivery shows up in the logs as `email_not_sent`.
 - [ ] **Google sign-in** (if used): the production origins in the OAuth client, and `FASTAPI_GOOGLE_CLIENT_ID`.
 
@@ -368,6 +373,7 @@ Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the lat
 | `project_description` | Invoices and payments for Acme. | `pyproject.toml`, README, API docs |
 | `author_name`, `author_email` | Jane Doe, jane@example.com | `pyproject.toml`, license |
 | `copyright_year` | 2026 (this year) | license |
+| `sentry` | yes | error reporting with Sentry in the `remote` image |
 
 `--trust` lets Copier run `.copier/prune.py`, which writes the answers into the project and re-locks the dependencies with uv. The answers are saved in `.copier-answers.yml`: commit it, and later bring in the template's improvements with:
 

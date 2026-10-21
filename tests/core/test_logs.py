@@ -9,11 +9,7 @@ import structlog
 from dirty_equals import IsDatetime, IsStr
 
 from app.core.config import Settings
-from app.core.logs import (
-    add_request_id_to_sentry_event,
-    build_formatter,
-    logging_config,
-)
+from app.core.logs import build_formatter, logging_config
 
 
 def test_build_formatter_json() -> None:
@@ -55,13 +51,3 @@ def test_logging_config() -> None:
     assert config["formatters"]["structlog"]["log_format"] == "json"
     assert config["handlers"]["default"]["level"] == "WARNING"
     assert config["root"]["level"] == "WARNING"
-
-
-def test_add_request_id_to_sentry_event() -> None:
-    """Test Sentry events are tagged with the request id, when there is one."""
-    with structlog.contextvars.bound_contextvars(request_id="abc"):
-        assert add_request_id_to_sentry_event({"tags": {"a": "b"}}, {}) == {
-            "tags": {"a": "b", "request_id": "abc"}
-        }
-    structlog.contextvars.clear_contextvars()
-    assert add_request_id_to_sentry_event({}, {}) == {}
