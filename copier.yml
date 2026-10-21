@@ -26,6 +26,13 @@ _exclude:
   - .ruff_cache
   - .claude/settings.local.json
   - |-
+    {%- if background_jobs != 'celery' %}
+    app/jobs
+    tests/jobs
+    scripts/check_worker.sh
+    docs/adr/0015-background-jobs-with-celery.md
+    {%- endif %}
+  - |-
     {%- if not sentry %}
     app/core/sentry.py
     tests/core/test_sentry.py
@@ -100,6 +107,13 @@ copyright_year:
   type: str
   help: The year in the license
   default: "{{ '%Y' | strftime }}"
+background_jobs:
+  type: str
+  help: How scheduled jobs (the daily purge, and yours) run
+  choices:
+    "cron: a command, run by your scheduler (crontab, Kubernetes CronJob)": cron
+    "celery: a Celery worker and beat, with Redis (Valkey) as the broker": celery
+  default: cron
 sentry:
   type: bool
   help: Report unexpected errors to Sentry from the remote image (enabled by SENTRY_DSN)

@@ -37,6 +37,7 @@ flowchart LR
 | `app/users` | users, groups and the permissions they grant, profile and administration |
 | `app/todos` | the example domain: the reference to copy for new features |
 | `app/cli` | Typer management CLI and the cross-domain commands (`seed`, `shell`) |
+| `app/jobs` | Celery: the app, the beat schedule and the tasks <!-- copier:celery --> |
 | `app/migrations` | Alembic environment and revisions |
 
 ## Request lifecycle
@@ -302,4 +303,25 @@ settings, a database session and the models loaded, and each domain adds its
 own (`users createsuperuser`). `purge`, to schedule daily, deletes the expired
 refresh tokens and rate limit counters. A command keeps its logic in an
 `execute_<command>()` function tested against the test database, and its Typer
-wrapper thin.
+wrapper thin. It runs with `run_with_session`, which creates an engine without
+a pool for the run and disposes it before the event loop of the run closes.
+<!-- copier:celery:start -->
+
+Background jobs run on Celery
+([ADR 0015](adr/0015-background-jobs-with-celery.md)): beat sends the
+scheduled tasks to Redis, the backend can send its own, and the workers run
+them.
+
+```mermaid
+flowchart LR
+    beat([beat]) -- "purge, daily at 03:00 UTC" --> redis[(Redis)]
+    backend([backend]) -. "task.delay()" .-> redis
+    redis --> worker([worker]) --> db[(PostgreSQL)]
+```
+
+A task runs its logic with `run_with_session`, like a command: connections
+cannot outlive the event loop of a run, so each run gets an engine of its own.
+Tasks are acknowledged once done, so they must be safe to run twice. Celery
+logs through structlog (its `setup_logging` signal), and every line of a task
+carries its `task_id` and `task_name`.
+<!-- copier:celery:end -->

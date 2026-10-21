@@ -29,6 +29,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **Health checks**: `/api/health/` for liveness and `/api/ready/` for readiness (database reachable)
 - **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, and included in `500` responses
 - **Error reporting with Sentry**: unexpected errors of the `remote` image go to Sentry once `SENTRY_DSN` is set, tagged with the request id, without personal data <!-- copier:sentry -->
+- **Background jobs with Celery**: a worker and beat with Redis (Valkey) as the broker; each task opens its own database session and logs with its task id, and beat runs the daily purge <!-- copier:celery -->
 - **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
 - **Quality gates**: ruff with an extended rule set, mypy in strict mode, bandit, and **100% branch coverage** enforced
 - **Realistic tests**: a real PostgreSQL database where every test is rolled back, factories, named personas, full-response snapshots, and a guard test that fails if a route is left without authentication
@@ -52,6 +53,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 | Tooling | uv, just, Docker, Docker Compose, GitHub Actions, Dependabot |
 | Logging | structlog |
 | Monitoring | Sentry (production only) <!-- copier:sentry --> |
+| Background jobs | Celery, Redis (Valkey) <!-- copier:celery --> |
 
 ## Quickstart
 
@@ -76,6 +78,8 @@ docker compose up --build
 - Readiness check: http://localhost:8000/api/ready/
 
 The `.env` file selects the `local` image target and mounts the source code, so the server reloads on every change. The API docs are served only in the `local` environment unless `FASTAPI_DOCS_ENABLED` says otherwise.
+
+Compose also starts the Celery worker (restarted on every change too), beat and Redis: see [Background jobs](#background-jobs). <!-- copier:celery -->
 
 Create the first administrator, then log in from the docs with the **Authorize** button (the username is the email):
 
@@ -174,6 +178,62 @@ List endpoints take their filters as query parameters, declared once in a `Filte
 | `order_by` | `?order_by=-priority,title` | sortable fields, `-` for descending; anything else is a `422` |
 | `page`, `size` | `?page=2&size=20` | pagination (size up to 100) |
 
+<!-- copier:celery:start -->
+## Background jobs
+
+Background jobs run on [Celery](https://docs.celeryq.dev/): beat sends the scheduled tasks to Redis (the Valkey image), and the worker runs them. `docker compose up` starts all three.
+
+- `app/jobs/worker.py` holds the Celery app and the schedule: `purge` (expired tokens and rate limit counters) runs every day at 03:00 UTC.
+- `app/jobs/tasks.py` holds the tasks. A task is a plain function that opens its own database session with `run_with_session`; send one from an endpoint with `task.delay(...)`, after the commit of what it reads.
+- A task is acknowledged when it finishes, so one interrupted by a worker that dies runs again: write tasks that do no harm when they run twice.
+- Every log line of a task carries its `task_id` and `task_name`.
+- A worker runs `FASTAPI_CELERY_WORKER_CONCURRENCY` processes (2, ~75 MiB each): Celery would otherwise start one per CPU of the host.
+
+Run a task by hand with `docker compose run --rm backend celery --app app.jobs.worker call app.jobs.tasks.purge`.
+
+<!-- copier:celery:end -->
+<!-- copier:!celery:start -->
+## Scheduled jobs
+
+_In the projects generated with `background_jobs: cron`, this section takes the place of [Background jobs](#background-jobs)._ <!-- copier:template -->
+
+`purge` deletes the expired refresh tokens, single-use tokens and rate limit counters: schedule it once a day. The `remote` image has no `just`, so run the module directly:
+
+```bash
+docker compose run --rm backend python -m app.cli.main purge
+```
+
+With cron, on the host that runs Compose:
+
+```
+0 3 * * * cd /srv/my-api && docker compose run --rm backend python -m app.cli.main purge
+```
+
+On Kubernetes, as a CronJob with the backend image and its environment:
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: purge
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: purge
+              image: registry.example.com/my-api:1.0.0
+              args: ["python", "-m", "app.cli.main", "purge"]
+              envFrom:
+                - secretRef:
+                    name: my-api
+```
+
+<!-- copier:!celery:end -->
 ## Development
 
 ### Inside Docker
@@ -197,6 +257,8 @@ just migrate-forward                   # apply the migrations
 just runserver                         # http://localhost:8000/api/docs
 ```
 
+Background jobs: `docker compose up -d redis`, then `just worker` and `just beat` in other terminals. <!-- copier:celery -->
+
 The tests run against a real PostgreSQL database: the suite creates a `<database>-test` database (one per xdist worker) and rolls back every change at the end of each test. `just test` runs them in parallel, one worker per CPU (`just test -n 0` for a single process; `just pytest` is always single-process, for debugging), and also runs `alembic check`, so the database must be migrated to the latest revision first.
 
 ### Commands
@@ -219,10 +281,10 @@ Run `just` to list every command. The most used ones:
 | `just manage seed` | Fill a local database with demo users and todos |
 | `just manage shell` | IPython with the settings, a database session and the models loaded (top-level `await`) |
 | `just manage purge` | Delete the expired refresh tokens and rate limit counters |
+| `just worker` | Run a Celery worker (restart it after changing the code) <!-- copier:celery --> |
+| `just beat` | Run Celery beat, which sends the scheduled tasks <!-- copier:celery --> |
 | `just audit` | Check the locked dependencies for known vulnerabilities |
 | `just upgrade` | Upgrade the dependencies within the pinned ranges |
-
-In production, schedule `purge` once a day, e.g. as a Kubernetes CronJob or a cron entry. The `remote` image has no `just`, so run the module directly: `docker compose run --rm backend python -m app.cli.main purge`.
 
 ## Project structure
 
@@ -239,6 +301,7 @@ app/
 ├── todos/               # example domain: the reference for new features
 ├── filters/             # FilterBase: declarative filters, search and ordering
 ├── ratelimit/           # rate limits with counters in PostgreSQL
+├── jobs/                # Celery app, beat schedule and tasks  # copier:celery
 ├── cli/                 # Typer management CLI: seed, shell
 └── migrations/          # Alembic environment and revisions
 tests/
@@ -334,10 +397,13 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `SENTRY_DSN` | — | Enables Sentry in the `remote` image <!-- copier:sentry --> |
 | `SENTRY_ENVIRONMENT` | — | Environment name shown in Sentry (e.g. `production`) <!-- copier:sentry --> |
 | `FASTAPI_SENTRY_TRACES_SAMPLE_RATE` | `0` | Share of requests traced for Sentry performance monitoring (`0` to `1`) <!-- copier:sentry --> |
+| `FASTAPI_CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL of the Celery broker (in Compose, the `redis` service) <!-- copier:celery --> |
+| `FASTAPI_CELERY_WORKER_CONCURRENCY` | `2` | Processes of a Celery worker (~75 MiB each) <!-- copier:celery --> |
 | `WEB_CONCURRENCY` | `2` | Number of gunicorn workers |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Proxies trusted to set `X-Forwarded-For` (read by uvicorn and gunicorn). Behind a load balancer, set its addresses (or `*` if only the proxy can reach the app); otherwise every client has the proxy's address and they share the rate limits |
 
 Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND_PORT` and `POSTGRES_PORT`.
+It also reads `REDIS_PORT`, and `CELERY_BROKER_URL` to point the containers to another Redis. <!-- copier:celery -->
 
 > **Database URL in Docker vs on your machine.** `FASTAPI_DATABASE_URL` in `.env` points to `localhost`, for the commands you run on your machine. Inside Docker Compose the backend reaches the database through the `postgres` service instead: compose sets the container's `FASTAPI_DATABASE_URL` from `DATABASE_URL`, which defaults to the compose database. Set `DATABASE_URL` only to point the container to another database.
 
@@ -351,7 +417,8 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **Behind a load balancer or reverse proxy**: set `FORWARDED_ALLOW_IPS` to its addresses (or `*` if only the proxy can reach the app). If it is missing, nothing fails: every user simply gets the proxy's address and the whole site shares the per-IP rate limits (30 logins per minute, 10 registrations per hour).
 - [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
 - [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
-- [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (expired refresh tokens and rate limit counters).
+- [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (see [Scheduled jobs](#scheduled-jobs)). <!-- copier:!celery -->
+- [ ] **Background jobs**: from the backend image, run the workers (`celery --app app.jobs.worker worker`) and **exactly one** beat (`celery --app app.jobs.worker beat`: two would send every scheduled task twice), with `FASTAPI_CELERY_BROKER_URL` pointing to Redis. On stop, a worker finishes its running tasks: give it a grace period longer than the longest task. <!-- copier:celery -->
 - [ ] **Monitoring**: probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
 - [ ] **Sentry**: `SENTRY_DSN` and `SENTRY_ENVIRONMENT`. <!-- copier:sentry -->
 - [ ] **Emails**: `FASTAPI_SMTP_*` and `FASTAPI_EMAIL_FROM` for your provider (a domain with SPF and DKIM, or the emails land in spam), and `FASTAPI_FRONTEND_URL` pointing to the frontend that serves `/verify-email` and `/reset-password`. A failed delivery shows up in the logs as `email_not_sent`.
@@ -375,6 +442,7 @@ Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the lat
 | `project_description` | Invoices and payments for Acme. | `pyproject.toml`, README, API docs |
 | `author_name`, `author_email` | Jane Doe, jane@example.com | `pyproject.toml`, license |
 | `copyright_year` | 2026 (this year) | license |
+| `background_jobs` | cron | `cron`: `purge` is a command for your scheduler; `celery`: a Celery worker and beat with Redis |
 | `sentry` | yes | error reporting with Sentry in the `remote` image |
 
 `--trust` lets Copier run `.copier/prune.py`, which writes the answers into the project and re-locks the dependencies with uv. The answers are saved in `.copier-answers.yml`: commit it, and later bring in the template's improvements with:
@@ -396,7 +464,8 @@ Copier merges the changes with yours; review them with `git diff` (and any `.rej
 - [x] Structured JSON logs with a request id, `seed` and `shell` management commands
 - [x] Hardening from external reviews: password hashing off the event loop, rate limits, concurrent refreshes, explicit account linking, streamed exports
 - [x] Email verification and password reset
-- [ ] Copier template with optional modules (authentication, background jobs, Sentry) and the `v2.0.0` release
+- [x] Copier template, with Sentry and Celery as options, migrations in branches
+- [ ] AI module (LangChain, Langfuse) and payments (Polar) as options, and the `v2.0.0` release
 <!-- copier:template:end -->
 
 ## License

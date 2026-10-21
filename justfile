@@ -113,6 +113,18 @@ upgrade:
 [group("managing")]
 manage *args:
     uv run -m app.cli.main {{args}}
+# copier:celery:start
+
+# Run a Celery worker (restart it after changing the code)
+[group("jobs")]
+worker:
+    uv run celery --app app.jobs.worker worker
+
+# Run Celery beat, which sends the scheduled tasks
+[group("jobs")]
+beat:
+    uv run celery --app app.jobs.worker beat
+# copier:celery:end
 # copier:template:start
 
 # Render the working tree into a project with an answers file (template only)

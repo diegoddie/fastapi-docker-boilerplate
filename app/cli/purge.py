@@ -4,7 +4,7 @@ import typer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.services import AuthService
-from app.cli.utils import run_with_session
+from app.core.database import run_with_session
 from app.ratelimit.services import PostgresRateLimiter
 
 

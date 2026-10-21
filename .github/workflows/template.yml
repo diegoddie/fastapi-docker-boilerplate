@@ -35,7 +35,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        answers: [acme, todo]
+        include:
+          - answers: acme
+            celery: true
+          - answers: todo
+            celery: false
     env:
       BACKEND_BUILD_TARGET: test
       # Not a real secret: it only signs the tokens of the throwaway test database.
@@ -75,6 +79,10 @@ jobs:
       - name: Run the project's checks and tests
         working-directory: ${{ env.PROJECT }}
         run: docker compose run --rm backend
+      - name: Check a worker runs a job
+        if: matrix.celery
+        working-directory: ${{ env.PROJECT }}
+        run: ./scripts/check_worker.sh
       - name: Check the migrations go down and up again
         working-directory: ${{ env.PROJECT }}
         run: >-

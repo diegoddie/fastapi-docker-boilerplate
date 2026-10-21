@@ -18,6 +18,8 @@ just manage users createsuperuser
 just manage seed          # demo users (Alice admin, Bob member, Carol viewer) and todos, local only
 just manage shell         # IPython with settings, session, models; top-level await
 just manage purge         # delete expired refresh tokens and rate limit counters (daily cron)
+just worker               # Celery worker (needs Redis: docker compose up -d redis)  # copier:celery
+just beat                 # Celery beat: sends the scheduled tasks  # copier:celery
 docker compose run --rm backend just test               # same, inside Docker
 ```
 
@@ -30,6 +32,7 @@ docker compose run --rm backend just test               # same, inside Docker
 - `app/emails/`: `EmailSender`, `EmailSenderDep` (sends after the response; console locally, SMTP remotely)
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
 - `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
+- `app/jobs/`: the Celery app and the beat schedule (`worker.py`), the tasks (`tasks.py`) <!-- copier:celery -->
 - `app/<domain>/`: `constants.py`, `enums.py`, `models.py`, `schemas.py`, `services.py`, `router.py` (+ `commands/`)
 - `tests/<domain>/` mirrors `app/`; fixtures in `tests/pytest_plugins/`, factories in `tests/factories/`
 
@@ -80,9 +83,17 @@ docker compose run --rm backend just test               # same, inside Docker
 - **Management commands**: logic in a service method or in
   `async def execute_<command>(..., session)`, tested against the test
   database; the Typer function is a thin wrapper marked `# pragma: no cover`
-  that calls `run_with_session` (`app/cli/utils.py`) and prints with
+  that calls `run_with_session` (`app/core/database.py`) and prints with
   `typer.secho`. Local-only commands call `require_local_environment()`.
   Register them in `app/cli/main.py`.
+<!-- copier:celery:start -->
+- **Background jobs**: a task in `app/jobs/tasks.py` is a thin sync function
+  that runs its logic (an `execute_<job>` coroutine or a service method) with
+  `run_with_session`, and must be safe to run twice (late acknowledgement).
+  Send it with `task.delay(...)` after the commit of what it reads; schedule it
+  in `beat_schedule` (`app/jobs/worker.py`). Test the task with `task.apply()`
+  and its logic against the test database.
+<!-- copier:celery:end -->
 - **Emails**: a service takes an `EmailSender` (the route injects
   `EmailSenderDep`) and awaits `sender.send(EmailMessage(...))`; the texts live
   in the domain's `emails.py` (see `app/auth/emails.py`). Never put secrets or

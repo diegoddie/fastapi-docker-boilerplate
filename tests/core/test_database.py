@@ -4,9 +4,16 @@ from typing import cast
 
 import pytest
 from pytest_mock import AsyncMockType, MockerFixture
+from sqlalchemy import text
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core import database
-from app.core.database import DatabaseSessionManager, aget_db_session
+from app.core.config import settings
+from app.core.database import (
+    DatabaseSessionManager,
+    aget_db_session,
+    run_with_session,
+)
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -86,3 +93,30 @@ async def test_aget_db_session(mocker: MockerFixture) -> None:
     with pytest.raises(StopAsyncIteration):
         await anext(generator)
     close.assert_awaited_once()
+
+
+def test_run_with_session(create_db: str, mocker: MockerFixture) -> None:
+    """Test each run gets a session on an engine of its own, disposed afterwards."""
+    mocker.patch.object(settings, "DATABASE_URL", create_db)
+    aclose = mocker.spy(DatabaseSessionManager, "aclose")
+
+    async def select_one(session: AsyncSession) -> object:
+        return await session.scalar(text("SELECT 1"))
+
+    # Why: a second run in the same process (a worker's next job) works too.
+    assert run_with_session(select_one) == 1
+    assert run_with_session(select_one) == 1
+    assert aclose.call_count == 2
+
+
+def test_run_with_session_error(create_db: str, mocker: MockerFixture) -> None:
+    """Test the engine is disposed when the function fails."""
+    mocker.patch.object(settings, "DATABASE_URL", create_db)
+    aclose = mocker.spy(DatabaseSessionManager, "aclose")
+
+    async def fail(session: AsyncSession) -> None:
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError, match="boom"):
+        run_with_session(fail)
+    aclose.assert_called_once()
