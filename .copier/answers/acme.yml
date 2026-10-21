@@ -1,0 +1,6 @@
+# A long name, quotes and accents in the description, another author.
+project_name: Acme Billing API
+project_description: 'Invoices, "quotes" and payments for Acme: déjà vu.'
+author_name: Jane Doe
+author_email: jane@example.com
+copyright_year: "2026"

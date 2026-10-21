@@ -1,0 +1,94 @@
+# Generate a project from this template: see "Generate a project" in README.md.
+_min_copier_version: "9.19.0"
+_answers_file: .copier-answers.yml
+# Why: the lock is never merged on update; the migration below re-locks it from
+# the merged pyproject.toml instead.
+_skip_if_exists:
+  - uv.lock
+# Why: a custom _exclude replaces Copier's defaults, so they are listed again.
+_exclude:
+  - copier.yml
+  - "~*"
+  - "*.py[co]"
+  - __pycache__
+  - .git
+  - .DS_Store
+  - .svn
+  - .copier
+  - .github/workflows/template.yml
+  - docs/adr/0013-the-template-prunes-a-working-app.md
+  - .env
+  - .venv
+  - .coverage*
+  - htmlcov
+  - .mypy_cache
+  - .pytest_cache
+  - .ruff_cache
+  - .claude/settings.local.json
+_tasks:
+  - - "{{ _copier_python }}"
+    - "{{ _copier_conf.src_path }}/.copier/prune.py"
+    - prune
+    - "{{ _copier_answers | to_json }}"
+  - command:
+      - "{{ _copier_python }}"
+      - "{{ _copier_conf.src_path }}/.copier/prune.py"
+      - lock
+    when: "{{ _copier_operation == 'copy' }}"
+_migrations:
+  - - "{{ _copier_python }}"
+    - "{{ _copier_conf.src_path }}/.copier/prune.py"
+    - lock
+_message_after_copy: |
+  {{ project_name }} is ready. Next steps:
+
+    cd {{ _copier_conf.dst_path }}
+    git init && git add -A && git commit -m "Generate from fastapi-docker-boilerplate"
+    cp .env_template .env
+    docker compose up --build
+    docker compose run --rm backend just manage users createsuperuser
+
+  Keep .copier-answers.yml: `copier update --trust` brings in the template's
+  improvements later.
+_message_after_update: |
+  Review the changes (`git diff`, and any `.rej` file or conflict marker), then:
+
+    just migrate-forward
+    just test
+
+project_name:
+  type: str
+  help: The project name, in words (README and API docs title)
+  validator: >-
+    {% if not project_name.strip() %}Required.
+    {%- elif project_name | length > 60 %}At most 60 characters.
+    {%- elif '"' in project_name or '\\' in project_name %}No double quotes or backslashes.
+    {%- endif %}
+project_slug:
+  type: str
+  help: The distribution, Docker and database name
+  default: "{{ project_name | lower | regex_replace('[^a-z0-9]+', '-') | regex_replace('^-+|-+$', '') }}"
+  validator: >-
+    {% if not (project_slug | regex_search('^[a-z][a-z0-9]*(-[a-z0-9]+)*$')) %}Lowercase
+    letters, digits and single dashes, starting with a letter.{% endif %}
+project_description:
+  type: str
+  help: One sentence about the project (pyproject.toml, README, API docs)
+  default: A FastAPI backend on PostgreSQL.
+  validator: >-
+    {% if not project_description.strip() %}Required.
+    {%- elif '\n' in project_description %}One line.{% endif %}
+author_name:
+  type: str
+  help: The author, for pyproject.toml and the license
+  validator: "{% if not author_name.strip() %}Required.{% endif %}"
+author_email:
+  type: str
+  help: The author's email
+  validator: >-
+    {% if not (author_email | regex_search('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')) %}Not an
+    email address.{% endif %}
+copyright_year:
+  type: str
+  help: The year in the license
+  default: "{{ '%Y' | strftime }}"

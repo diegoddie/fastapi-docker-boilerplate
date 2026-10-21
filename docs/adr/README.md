@@ -19,6 +19,7 @@ status updated.
 | [0010](0010-external-accounts-are-linked-explicitly.md) | External accounts are linked explicitly, never by email | Amended by 0012 |
 | [0011](0011-rate-limits-in-postgres.md) | Rate limits on the authentication endpoints, counted in PostgreSQL | Accepted |
 | [0012](0012-email-verification-and-password-reset.md) | Email verification and password reset | Accepted |
+| [0013](0013-the-template-prunes-a-working-app.md) | The template prunes a working app | Accepted <!-- copier:template --> |
 
 To add one, copy the structure of an existing record, give it the next number
 and add it to this table.

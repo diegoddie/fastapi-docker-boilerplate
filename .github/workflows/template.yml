@@ -1,0 +1,91 @@
+# The template's own CI (not copied into generated projects): it generates a
+# project from each answer set and runs that project's CI on it.
+name: Template
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: template-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: Prune script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Check the markers and the replacements
+        run: python3 .copier/prune.py check
+      - name: Lint and type check the template's scripts
+        run: |
+          uv run --group test ruff check .copier
+          uv run --group test ruff format --check .copier
+          uv run --group test mypy .copier
+      - name: Test the template's scripts
+        run: uv run --group test pytest .copier/tests
+
+  generate:
+    name: Generated project (${{ matrix.answers }})
+    needs: engine
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        answers: [acme, todo]
+    env:
+      BACKEND_BUILD_TARGET: test
+      # Not a real secret: it only signs the tokens of the throwaway test database.
+      FASTAPI_SECRET_KEY: ci-only-secret-key-for-the-test-suite-0123456789
+    steps:
+      # Why: the runner context is not available in the job's env.
+      - name: Set the project directory
+        run: echo "PROJECT=$RUNNER_TEMP/project" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Generate the project
+        run: >-
+          uv run --group template copier copy --trust --defaults --vcs-ref HEAD
+          --data-file ".copier/answers/${{ matrix.answers }}.yml"
+          "$GITHUB_WORKSPACE" "$PROJECT"
+      - name: Check nothing of the template is left
+        run: python3 .copier/check_render.py "$PROJECT"
+      - name: Check the lockfile, the shell scripts and the compose file
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          uv lock --check
+          shellcheck scripts/*.sh
+          docker compose config --quiet
+      - name: Build
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          workdir: ${{ env.PROJECT }}
+          files: compose.yaml
+          load: true
+          set: |
+            *.cache-from=type=gha,scope=template-${{ matrix.answers }}
+            *.cache-to=type=gha,mode=max,scope=template-${{ matrix.answers }}
+      - name: Run the project's checks and tests
+        working-directory: ${{ env.PROJECT }}
+        run: docker compose run --rm backend
+      - name: Check generating again changes nothing
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          git init --quiet
+          git add --all
+          git -c user.name=ci -c user.email=ci@example.com commit --quiet -m generated
+          uv run --project "$GITHUB_WORKSPACE" --group template \
+            copier recopy --trust --defaults --overwrite --vcs-ref HEAD
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+      - name: Tear down
+        if: always()
+        working-directory: ${{ env.PROJECT }}
+        run: docker compose down -v || true

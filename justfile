@@ -103,3 +103,12 @@ upgrade:
 [group("managing")]
 manage *args:
     uv run -m app.cli.main {{args}}
+# copier:template:start
+
+# Render the working tree into a project with an answers file (template only)
+[group("template")]
+template-render ANSWERS DESTINATION:
+    rm -rf {{DESTINATION}}
+    uv run --group template copier copy --trust --defaults --vcs-ref HEAD --data-file {{ANSWERS}} . {{DESTINATION}}
+    uv run python .copier/check_render.py {{DESTINATION}}
+# copier:template:end
