@@ -22,6 +22,7 @@ TEMPLATE_IDENTITY = (
     "Diego Lauricella",
     "diego.boost",
 )
+ANSWERS_FILE = ".copier-answers.yml"
 TEMPLATE_ONLY_PATHS = (
     ".copier",
     "copier.yml",
@@ -37,7 +38,8 @@ def leftovers(root: Path) -> list[str]:
     ]
     for path in text_files(root):
         relative = path.relative_to(root)
-        if relative.parts[:2] == ("docs", "adr"):
+        # Why: the answers point to the template on purpose (for updates).
+        if relative.parts[:2] == ("docs", "adr") or relative.name == ANSWERS_FILE:
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if BLOCK.match(line) or LINE.search(line):
@@ -47,7 +49,7 @@ def leftovers(root: Path) -> list[str]:
                 for identity in TEMPLATE_IDENTITY
                 if identity in line
             )
-    answers = root / ".copier-answers.yml"
+    answers = root / ANSWERS_FILE
     if not answers.exists():
         problems.append(".copier-answers.yml is missing")
     elif not {"_commit:", "_src_path:"} <= {
