@@ -15,7 +15,8 @@ from sqlalchemy.dialects import postgresql
 
 revision: str = "57fac5921361"
 down_revision: str | None = None
-branch_labels: str | Sequence[str] | None = None
+# Why: the label names the main branch; optional modules add branches of their own.
+branch_labels: str | Sequence[str] | None = ("main",)
 depends_on: str | Sequence[str] | None = None
 
 

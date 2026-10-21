@@ -211,8 +211,10 @@ Run `just` to list every command. The most used ones:
 | `just test` | `check` + test suite with coverage + coverage report |
 | `just pytest` | Run pytest for debugging (no output capture, slowest tests) |
 | `just forge "message"` | Create a new migration from the models |
-| `just migrate-forward` | Apply all pending migrations |
-| `just migrate-backward <revision>` | Roll back to a revision |
+| `just forge-module <module> "message"` | Create a new migration in the branch of an optional module |
+| `just migrate-forward` | Apply all pending migrations (every branch) |
+| `just migrate-backward <revision>` | Roll back to a revision (e.g. `main@-1`) |
+| `just migrate-merge` | Merge migration branches that diverged into one head |
 | `just manage users createsuperuser` | Create an administrator |
 | `just manage seed` | Fill a local database with demo users and todos |
 | `just manage shell` | IPython with the settings, a database session and the models loaded (top-level `await`) |
