@@ -186,7 +186,7 @@ just migrate-forward                   # apply the migrations
 just runserver                         # http://localhost:8000/api/docs
 ```
 
-The tests run against a real PostgreSQL database: the suite creates a `<database>-test` database (one per xdist worker) and rolls back every change at the end of each test. `just test` also runs `alembic check`, so the database must be migrated to the latest revision first.
+The tests run against a real PostgreSQL database: the suite creates a `<database>-test` database (one per xdist worker) and rolls back every change at the end of each test. `just test` runs them in parallel, one worker per CPU (`just test -n 0` for a single process; `just pytest` is always single-process, for debugging), and also runs `alembic check`, so the database must be migrated to the latest revision first.
 
 ### Commands
 
