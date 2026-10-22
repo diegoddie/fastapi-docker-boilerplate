@@ -38,6 +38,7 @@ flowchart LR
 | `app/todos` | the example domain: the reference to copy for new features |
 | `app/cli` | Typer management CLI and the cross-domain commands (`seed`, `shell`) |
 | `app/jobs` | Celery: the app, the beat schedule and the tasks <!-- copier:celery --> |
+| `app/ai` | AI features with Claude through LangChain: the chat model, prompts, schemas, Langfuse tracing <!-- copier:ai --> |
 | `app/migrations` | Alembic environment and revisions |
 
 ## Request lifecycle
@@ -216,6 +217,7 @@ Every error has the same body, so clients can rely on a machine-readable code:
 | Unknown route, wrong method | 404, 405 | `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
 | Invalid request | 422 | `VALIDATION_ERROR`, with an `errors` list that never echoes the input |
 | Rate limit exceeded | 429 | `TOO_MANY_REQUESTS`, with a `Retry-After` header |
+| The AI model declines, answers out of the schema, or cannot answer | 422 / 502 / 503 | `AI_REFUSAL` / `AI_INVALID_RESPONSE` / `AI_UNAVAILABLE` <!-- copier:ai --> |
 | Unique / foreign key / not null violation | 409 / 422 | `CONFLICT` / `UNPROCESSABLE`, without database details |
 | Anything unexpected | 500 | `SERVER_ERROR`, with the `requestId` (the traceback goes to the logs) |
 
@@ -260,6 +262,45 @@ A request line in production:
 - Application code logs events with fields:
   `structlog.get_logger(__name__).info("todo_created", todo_id=str(todo.id))`;
   the request id and the user id are added automatically.
+
+<!-- copier:ai:start -->
+## AI
+
+The AI features call Claude through LangChain
+([ADR 0016](adr/0016-ai-features-with-langchain-and-claude.md)):
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as Route
+    participant S as AIService
+    participant DB as PostgreSQL
+    participant M as Claude
+    participant L as Langfuse
+    C->>R: POST /todos/todo/{id}/subtask-suggestions/
+    R->>DB: permission, rate limit per user
+    R->>S: suggest_todo_subtasks
+    S->>DB: read the todo, then commit
+    S->>M: prompt and JSON schema
+    M-->>S: JSON, a refusal or an error
+    S--)L: trace, without the text
+    S-->>C: 200 with the subtasks, or 422 / 502 / 503
+```
+
+- `ChatModelDep` is LangChain's `BaseChatModel`: tests replace it with a fake,
+  and another provider's LangChain model could replace Claude, with its own
+  error mapping in `generate`.
+- The requests fit the current Claude models: no sampling parameters (they are
+  rejected), adaptive thinking at an explicit effort, an answer within
+  `max_tokens` without streaming, and `fallbacks: "default"`, so a request
+  declined by a safety classifier runs again on another model, server-side.
+- `generate` asks for the answer with `with_structured_output(method=
+  "json_schema")`: the API constrains the JSON to the schema, and Pydantic
+  checks what a JSON schema there cannot say (lengths, number of items).
+- Langfuse gets a `TracerProvider` of its own, and the input and output
+  attributes of its spans are dropped at export unless
+  `LANGFUSE_CAPTURE_CONTENT` is set.
+<!-- copier:ai:end -->
 
 ## Testing
 

@@ -32,6 +32,7 @@ docker compose run --rm backend just test               # same, inside Docker
 - `app/emails/`: `EmailSender`, `EmailSenderDep` (sends after the response; console locally, SMTP remotely)
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
 - `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
+- `app/ai/`: the chat model (`dependencies.py`), `generate` and the AI features (`services.py`), prompts, answer schemas, Langfuse tracing <!-- copier:ai -->
 - `app/jobs/`: the Celery app and the beat schedule (`worker.py`), the tasks (`tasks.py`) <!-- copier:celery -->
 - `app/<domain>/`: `constants.py`, `enums.py`, `models.py`, `schemas.py`, `services.py`, `router.py` (+ `commands/`)
 - `tests/<domain>/` mirrors `app/`; fixtures in `tests/pytest_plugins/`, factories in `tests/factories/`
@@ -86,6 +87,16 @@ docker compose run --rm backend just test               # same, inside Docker
   that calls `run_with_session` (`app/core/database.py`) and prints with
   `typer.secho`. Local-only commands call `require_local_environment()`.
   Register them in `app/cli/main.py`.
+<!-- copier:ai:start -->
+- **AI features**: a service method takes `ChatModelDep` and
+  `TracingCallbacksDep` from the route, commits its reads, then calls
+  `generate(chat_model, messages, Schema, name=..., user=..., callbacks=...)`.
+  Prompts live in `app/ai/prompts.py` and the answer schema in `schemas.py`
+  (its docstring and field descriptions are part of the prompt). Never set
+  `temperature`, `top_p` or `top_k`, nor force a tool: the current models
+  reject them. Routes add `Depends(get_chat_model)` then
+  `Depends(limit_ai_requests)`.
+<!-- copier:ai:end -->
 <!-- copier:celery:start -->
 - **Background jobs**: a task in `app/jobs/tasks.py` is a thin sync function
   that runs its logic (an `execute_<job>` coroutine or a service method) with
@@ -131,6 +142,8 @@ docker compose run --rm backend just test               # same, inside Docker
 - No test sends emails (the console backend is forced); read the emails a test
   triggers with the `email_outbox` fixture, and the token of their link with
   `email_token(message)` from `tests/utils.py`.
+- Tests of AI features use the `fake_chat_model` fixture: `answer(...)` and
+  `fail(...)` prepare what the model does; no test calls Anthropic or Langfuse. <!-- copier:ai -->
 - Assert logs with the `log_events` fixture: `log_events("http_request")` returns
   the structlog events with that name, as dicts.
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and

@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.ai.constants import CAN_SUGGEST_TODO_SUBTASKS  # copier:ai
 from app.todos.constants import (
     CAN_CREATE_TODO,
     CAN_DELETE_TODO,
@@ -28,16 +29,29 @@ from app.users.models import User
                 CAN_EDIT_TODO,
                 CAN_DELETE_TODO,
                 CAN_MANAGE_ALL_TODOS,
+                CAN_SUGGEST_TODO_SUBTASKS,  # copier:ai
             },
         ),
         (
             [Group.MEMBER],
-            {CAN_CREATE_TODO, CAN_VIEW_TODO, CAN_EDIT_TODO, CAN_DELETE_TODO},
+            {
+                CAN_CREATE_TODO,
+                CAN_VIEW_TODO,
+                CAN_EDIT_TODO,
+                CAN_DELETE_TODO,
+                CAN_SUGGEST_TODO_SUBTASKS,  # copier:ai
+            },
         ),
         ([Group.VIEWER], {CAN_VIEW_TODO}),
         (
             [Group.VIEWER, Group.MEMBER],
-            {CAN_CREATE_TODO, CAN_VIEW_TODO, CAN_EDIT_TODO, CAN_DELETE_TODO},
+            {
+                CAN_CREATE_TODO,
+                CAN_VIEW_TODO,
+                CAN_EDIT_TODO,
+                CAN_DELETE_TODO,
+                CAN_SUGGEST_TODO_SUBTASKS,  # copier:ai
+            },
         ),
         ([], set()),
     ],

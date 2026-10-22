@@ -82,6 +82,13 @@ class ServerErrorHTTPException(BaseHTTPException):
     error_code = "SERVER_ERROR"
 
 
+class BadGatewayHTTPException(BaseHTTPException):
+    """Bad gateway http exception: an external service answered badly."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    error_code = "BAD_GATEWAY"
+
+
 class ServiceUnavailableHTTPException(BaseHTTPException):
     """Service unavailable http exception."""
 

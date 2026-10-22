@@ -123,6 +123,25 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CERTS_URL: str = "https://www.googleapis.com/oauth2/v3/certs"
 
+    # copier:ai:start
+    # AI with Claude (disabled when the API key is not set)
+    ANTHROPIC_API_KEY: SecretStr | None = None
+    AI_MODEL: str = "claude-opus-5-5"
+    AI_TIMEOUT_SECONDS: float = Field(default=60, gt=0)
+    # Why: the SDK retries rate limits, overloads and network errors; one retry
+    # keeps a slow answer within two timeouts.
+    AI_MAX_RETRIES: int = Field(default=1, ge=0)
+    # Why: per user, since every request costs tokens.
+    RATE_LIMIT_AI_REQUESTS_PER_HOUR: int = Field(default=20, gt=0)
+    # Langfuse tracing of the AI calls (disabled when the keys are not set)
+    LANGFUSE_PUBLIC_KEY: str | None = None
+    LANGFUSE_SECRET_KEY: SecretStr | None = None
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    # Why: prompts and answers can hold personal data; by default the traces keep
+    # the model, the tokens, the timings and the metadata, not the text.
+    LANGFUSE_CAPTURE_CONTENT: bool = False
+    # copier:ai:end
+
     # Pydantic
     model_config = SettingsConfigDict(env_prefix="FASTAPI_")
 
