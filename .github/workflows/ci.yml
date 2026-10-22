@@ -46,6 +46,10 @@ jobs:
             *.cache-to=type=gha,mode=max
       - name: Test
         run: docker compose run --name backend_test backend
+      # copier:celery:start
+      - name: Check a worker runs a job
+        run: ./scripts/check_worker.sh
+      # copier:celery:end
       - name: Copy coverage report
         if: always()
         run: docker cp backend_test:/app/htmlcov htmlcov || true

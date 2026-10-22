@@ -9,7 +9,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
+    # Why: the worker and beat share this environment.  # copier:celery
+    environment: &backend-environment
+      - FASTAPI_CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}  # copier:celery
+      - FASTAPI_CELERY_WORKER_CONCURRENCY  # copier:celery
       - FASTAPI_CORS_ALLOWED_ORIGINS
       - FASTAPI_DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/boilerplate}
       - FASTAPI_DEBUG
@@ -37,6 +40,25 @@ services:
       - "${BACKEND_PORT:-8000}:${BACKEND_SERVICE_PORT:-8000}"
     user: ${USER:-appuser}
 
+  # copier:celery:start
+  beat:
+    command: ["celery", "--app", "app.jobs.worker", "beat"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *backend-environment
+    # Why: the image's health check probes the web server, which this service
+    # does not run.
+    healthcheck:
+      disable: true
+    image: ${BACKEND_IMAGE_NAME:-boilerplate_backend}:${BACKEND_IMAGE_TAG:-latest}
+    # Why: the backend service builds this image; there is nothing to pull.
+    pull_policy: never
+    user: ${USER:-appuser}
+
+  # copier:celery:end
   postgres:
     environment:
       - POSTGRES_DB=boilerplate
@@ -51,5 +73,34 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql
 
+  # copier:celery:start
+  redis:
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      retries: 10
+    image: valkey/valkey:9-trixie
+
+  worker:
+    command: ["celery", "--app", "app.jobs.worker", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *backend-environment
+    # Why: the image's health check probes the web server, which this service
+    # does not run.
+    healthcheck:
+      disable: true
+    image: ${BACKEND_IMAGE_NAME:-boilerplate_backend}:${BACKEND_IMAGE_TAG:-latest}
+    # Why: the backend service builds this image; there is nothing to pull.
+    pull_policy: never
+    # Why: on stop, the worker finishes the tasks it is running (a few seconds
+    # when idle) before it is killed; as long as Kubernetes' default.
+    stop_grace_period: 30s
+    user: ${USER:-appuser}
+
+  # copier:celery:end
 volumes:
   pg_data: {}

@@ -133,12 +133,22 @@ def test_answers_from_json() -> None:
                 "author_name": "Jane Doe",
                 "author_email": "jane@example.com",
                 "copyright_year": 2026,
+                "background_jobs": "cron",
+                "sentry": False,
             }
         )
     )
     assert answers.db_name == "acme_billing_api"
     assert answers.copyright_year == "2026"
     assert answers.modules == frozenset()
+
+
+def test_enabled_modules() -> None:
+    """Test a module is turned on by a yes or by the choice that names it."""
+    assert prune.enabled_modules(
+        {"background_jobs": "celery", "sentry": True}
+    ) == frozenset({"celery", "sentry"})
+    assert prune.enabled_modules({"background_jobs": "cron"}) == frozenset()
 
 
 def test_prune_the_template(tmp_path: Path, answers: Answers) -> None:
@@ -234,6 +244,19 @@ def test_leftovers_module_off(tmp_path: Path) -> None:
     assert leftovers(tmp_path) == ["main.py:1: 'sentry' of a module turned off"]
     (tmp_path / ".copier-answers.yml").write_text(
         "_commit: v2.0.0\n_src_path: gh:x/y\nsentry: true\n"
+    )
+    assert leftovers(tmp_path) == []
+
+
+def test_leftovers_choice_off(tmp_path: Path) -> None:
+    """Test a module turned on by a choice is checked like the others."""
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v2.0.0\n_src_path: gh:x/y\nbackground_jobs: cron\nsentry: true\n"
+    )
+    (tmp_path / "compose.yaml").write_text("image: valkey/valkey:9-trixie\n")
+    assert leftovers(tmp_path) == ["compose.yaml:1: 'valkey' of a module turned off"]
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v2.0.0\n_src_path: gh:x/y\nbackground_jobs: celery\n"
     )
     assert leftovers(tmp_path) == []
 

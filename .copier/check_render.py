@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from prune import BLOCK, LINE, MODULES, text_files
+from prune import BLOCK, LINE, MODULES, enabled_modules, text_files
 
 # The template's identity, which no generated project may keep (outside the
 # ADRs, which record the history of decisions as written).
@@ -23,7 +23,7 @@ TEMPLATE_IDENTITY = (
     "diego.boost",
 )
 # The words that betray a module left in a project that turned it off.
-MODULE_KEYWORDS = {"sentry": ("sentry",)}
+MODULE_KEYWORDS = {"celery": ("celery", "valkey"), "sentry": ("sentry",)}
 ANSWERS_FILE = ".copier-answers.yml"
 TEMPLATE_ONLY_PATHS = (
     ".copier",
@@ -33,13 +33,15 @@ TEMPLATE_ONLY_PATHS = (
 )
 
 
-def read_answers(path: Path) -> dict[str, str]:
-    """Return the top-level answers of an answers file, as strings."""
-    answers = {}
+def read_answers(path: Path) -> dict[str, object]:
+    """Return the top-level answers of an answers file, booleans parsed."""
+    answers: dict[str, object] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         key, separator, value = line.partition(":")
         if separator and not line.startswith((" ", "#")):
-            answers[key] = value.strip()
+            answers[key] = {"true": True, "false": False}.get(
+                value.strip(), value.strip()
+            )
     return answers
 
 
@@ -49,8 +51,7 @@ def leftovers(root: Path) -> list[str]:
     answers = read_answers(answers_path) if answers_path.exists() else {}
     keywords = [
         keyword
-        for module in sorted(MODULES - {"template"})
-        if answers.get(module) != "true"
+        for module in sorted(MODULES - enabled_modules(answers) - {"template"})
         for keyword in MODULE_KEYWORDS.get(module, ())
     ]
     problems = [

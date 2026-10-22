@@ -5,7 +5,13 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, PostgresDsn, SecretStr, computed_field
+from pydantic import (
+    Field,
+    PostgresDsn,
+    RedisDsn,  # copier:celery
+    SecretStr,
+    computed_field,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +66,14 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
 
+    # copier:celery:start
+    # Background jobs (Celery worker and beat)
+    CELERY_BROKER_URL: RedisDsn = RedisDsn("redis://localhost:6379/0")
+    # Why: Celery starts a process per CPU of the host, not of the container, and
+    # each one takes ~75 MiB: on a large host, the worker would exhaust its memory.
+    CELERY_WORKER_CONCURRENCY: int = Field(default=2, gt=0)
+
+    # copier:celery:end
     # Authentication
     # Why: it signs the access tokens, so it has no default and must be long
     # enough for HS256 (generate one with `openssl rand -hex 32`).

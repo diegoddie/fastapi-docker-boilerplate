@@ -4,6 +4,24 @@ services:
     volumes:
       - .:/app
 
+  # copier:celery:start
+  beat:
+    volumes:
+      - .:/app
+
+  # copier:celery:end
   postgres:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
+  # copier:celery:start
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  # Why: the worker restarts when the code changes, like the development server.
+  worker:
+    command: ["watchfiles", "--filter", "python", "celery --app app.jobs.worker worker", "app"]
+    volumes:
+      - .:/app
+  # copier:celery:end

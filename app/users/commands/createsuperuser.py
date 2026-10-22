@@ -7,7 +7,8 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from app.auth.security import password_hasher
-from app.cli.utils import echo_validation_errors, run_with_session
+from app.cli.utils import echo_validation_errors
+from app.core.database import run_with_session
 from app.users.enums import Group
 from app.users.schemas import UserPublicSchemaCreate
 from app.users.services import UserService

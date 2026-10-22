@@ -10,11 +10,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.security import password_hasher
 from app.cli.constants import SEED_TODOS, SEED_USERS
-from app.cli.utils import (
-    echo_validation_errors,
-    require_local_environment,
-    run_with_session,
-)
+from app.cli.utils import echo_validation_errors, require_local_environment
+from app.core.database import run_with_session
 from app.todos.schemas import TodoPublicSchemaCreate
 from app.todos.services import TodoService
 from app.users.models import User

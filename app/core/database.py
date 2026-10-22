@@ -1,11 +1,13 @@
 """The core database."""
 
-from collections.abc import AsyncGenerator, AsyncIterator
+import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
@@ -64,3 +66,27 @@ async def aget_db_session() -> AsyncGenerator[AsyncSession]:
 
 
 AsyncDBSession = Annotated[AsyncSession, Depends(aget_db_session)]
+
+
+def run_with_session[T](function: Callable[[AsyncSession], Awaitable[T]]) -> T:
+    """
+    Run a coroutine function with a session, in an event loop of its own.
+
+    For the code that runs outside the server: management commands and
+    background jobs. Why: connections cannot outlive the event loop that opened
+    them, so each run gets an engine of its own, without a pool, disposed before
+    its loop closes; a job that runs again in the same process starts afresh.
+    """
+
+    async def run() -> T:
+        """Run the function, then dispose the engine while the loop is open."""
+        manager = DatabaseSessionManager(
+            str(settings.DATABASE_URL), echo=settings.DEBUG, poolclass=NullPool
+        )
+        try:
+            async with manager.aget_session() as session:
+                return await function(session)
+        finally:
+            await manager.aclose()
+
+    return asyncio.run(run())

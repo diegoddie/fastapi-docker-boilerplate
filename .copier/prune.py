@@ -31,13 +31,18 @@ import re
 import shutil
 import subprocess  # nosec B404
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-# The optional modules: each one is a boolean answer with the same name, except
-# "template", which a generated project never has.
-MODULES = frozenset({"sentry", "template"})
+# The optional modules, and the answers that turn each one on; "template" marks
+# what only the template needs, so a generated project never has it.
+MODULE_ANSWERS: dict[str, Callable[[Mapping[str, object]], bool]] = {
+    "celery": lambda answers: answers.get("background_jobs") == "celery",
+    "sentry": lambda answers: answers.get("sentry") is True,
+    "template": lambda answers: False,
+}
+MODULES = frozenset(MODULE_ANSWERS)
 
 SKIPPED_DIRS = frozenset(
     {
@@ -94,10 +99,13 @@ class Answers:
             author_name=data["author_name"],
             author_email=data["author_email"],
             copyright_year=str(data["copyright_year"]),
-            modules=frozenset(
-                name for name in MODULES if name != "template" and data.get(name)
-            ),
+            modules=enabled_modules(data),
         )
+
+
+def enabled_modules(answers: Mapping[str, object]) -> frozenset[str]:
+    """Return the modules that the answers turn on."""
+    return frozenset(name for name, is_on in MODULE_ANSWERS.items() if is_on(answers))
 
 
 def quoted(value: str) -> str:
