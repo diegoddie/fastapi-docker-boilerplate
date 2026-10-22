@@ -67,7 +67,7 @@ jobs:
           shellcheck scripts/*.sh
           docker compose config --quiet
       - name: Build
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         with:
           source: .
           workdir: ${{ env.PROJECT }}
