@@ -22,6 +22,7 @@ status updated.
 | [0013](0013-the-template-prunes-a-working-app.md) | The template prunes a working app | Accepted <!-- copier:template --> |
 | [0014](0014-migrations-in-branches.md) | Migrations in branches, one per optional module | Accepted |
 | [0015](0015-background-jobs-with-celery.md) | Background jobs with Celery, as an option | Accepted <!-- copier:celery --> |
+| [0016](0016-ai-features-with-langchain-and-claude.md) | AI features with LangChain and Claude, as an option | Accepted <!-- copier:ai --> |
 
 To add one, copy the structure of an existing record, give it the next number
 and add it to this table.

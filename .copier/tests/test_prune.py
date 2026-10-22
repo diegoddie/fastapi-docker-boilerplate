@@ -146,8 +146,8 @@ def test_answers_from_json() -> None:
 def test_enabled_modules() -> None:
     """Test a module is turned on by a yes or by the choice that names it."""
     assert prune.enabled_modules(
-        {"background_jobs": "celery", "sentry": True}
-    ) == frozenset({"celery", "sentry"})
+        {"ai": True, "background_jobs": "celery", "sentry": True}
+    ) == frozenset({"ai", "celery", "sentry"})
     assert prune.enabled_modules({"background_jobs": "cron"}) == frozenset()
 
 
