@@ -11,6 +11,8 @@ services:
         condition: service_healthy
     # Why: the worker and beat share this environment.  # copier:celery
     environment: &backend-environment
+      - FASTAPI_AI_MODEL  # copier:ai
+      - FASTAPI_ANTHROPIC_API_KEY  # copier:ai
       - FASTAPI_CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}  # copier:celery
       - FASTAPI_CELERY_WORKER_CONCURRENCY  # copier:celery
       - FASTAPI_CORS_ALLOWED_ORIGINS
@@ -21,6 +23,10 @@ services:
       - FASTAPI_ENVIRONMENT=${FASTAPI_ENVIRONMENT:-remote}
       - FASTAPI_FRONTEND_URL
       - FASTAPI_GOOGLE_CLIENT_ID
+      - FASTAPI_LANGFUSE_BASE_URL  # copier:ai
+      - FASTAPI_LANGFUSE_CAPTURE_CONTENT  # copier:ai
+      - FASTAPI_LANGFUSE_PUBLIC_KEY  # copier:ai
+      - FASTAPI_LANGFUSE_SECRET_KEY  # copier:ai
       - FASTAPI_LOG_FORMAT
       - FASTAPI_LOG_LEVEL
       - FASTAPI_SECRET_KEY

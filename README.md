@@ -29,6 +29,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **Health checks**: `/api/health/` for liveness and `/api/ready/` for readiness (database reachable)
 - **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, and included in `500` responses
 - **Error reporting with Sentry**: unexpected errors of the `remote` image go to Sentry once `SENTRY_DSN` is set, tagged with the request id, without personal data <!-- copier:sentry -->
+- **AI features with Claude**: LangChain on Claude Opus 5.5 with answers validated against a schema, an example route that suggests the subtasks of a todo, failures mapped to clear statuses, a per-user rate limit, token counts in the logs, and optional Langfuse tracing that keeps the text of prompts and answers out <!-- copier:ai -->
 - **Background jobs with Celery**: a worker and beat with Redis (Valkey) as the broker; each task opens its own database session and logs with its task id, and beat runs the daily purge <!-- copier:celery -->
 - **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
 - **Quality gates**: ruff with an extended rule set, mypy in strict mode, bandit, and **100% branch coverage** enforced
@@ -54,6 +55,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 | Logging | structlog |
 | Monitoring | Sentry (production only) <!-- copier:sentry --> |
 | Background jobs | Celery, Redis (Valkey) <!-- copier:celery --> |
+| AI | LangChain, Claude (Anthropic), Langfuse <!-- copier:ai --> |
 
 ## Quickstart
 
@@ -118,6 +120,7 @@ docker compose run --rm backend just manage seed
 | `GET` | `/api/v1/todos/todo/{id}/` | `can_view_todo` | Todo detail |
 | `PATCH` | `/api/v1/todos/todo/{id}/` | `can_edit_todo` | Update a todo |
 | `DELETE` | `/api/v1/todos/todo/{id}/` | `can_delete_todo` | Delete a todo (soft delete) |
+| `POST` | `/api/v1/todos/todo/{id}/subtask-suggestions/` | `can_suggest_todo_subtasks` | Ask Claude to split a todo into subtasks, ready to create <!-- copier:ai --> |
 | `GET` / `HEAD` | `/api/health/`, `/api/ready/` | public | Liveness and readiness checks |
 
 ## Sign in with Google
@@ -164,6 +167,8 @@ Users belong to groups; each group grants a set of permissions (`GROUPS` in `app
 
 A todo owned by someone else answers `404`, not `403`: the API never reveals that it exists.
 
+Members and administrators can also ask for the subtasks of their todos (`can_suggest_todo_subtasks`). <!-- copier:ai -->
+
 ## Lists: filters, search, ordering
 
 List endpoints take their filters as query parameters, declared once in a `FilterBase` subclass (see `TodoFilter` in `app/todos/schemas.py`) and reused by the CSV export:
@@ -178,6 +183,19 @@ List endpoints take their filters as query parameters, declared once in a `Filte
 | `order_by` | `?order_by=-priority,title` | sortable fields, `-` for descending; anything else is a `422` |
 | `page`, `size` | `?page=2&size=20` | pagination (size up to 100) |
 
+<!-- copier:ai:start -->
+## AI features
+
+With `FASTAPI_ANTHROPIC_API_KEY` set, `POST /api/v1/todos/todo/{id}/subtask-suggestions/` asks Claude to split a todo into 2 to 8 subtasks, each ready to be sent to `POST /api/v1/todos/todo/`. Without the key, the AI routes answer `404` (`AI_DISABLED`).
+
+- The chat model is LangChain's `ChatAnthropic`, built once in `app/ai/dependencies.py`: Claude Opus 5.5 (`FASTAPI_AI_MODEL`), adaptive thinking at medium effort, and a server-side fallback to another model when a safety classifier declines the request.
+- A feature is a service method that calls `generate(chat_model, messages, Schema, ...)` (`app/ai/services.py`): the answer comes back as JSON in a Pydantic schema, validated. The model declining answers `422` (`AI_REFUSAL`), an answer that does not fit the schema `502` (`AI_INVALID_RESPONSE`), timeouts, rate limits and overloads `503` (`AI_UNAVAILABLE`), after `FASTAPI_AI_MAX_RETRIES` retries.
+- The request gives its database connection back before calling the model, and each user may send `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR` requests (20), since every call costs tokens.
+- Every call logs `ai_completion` with the model, the stop reason, the tokens and the duration, never the text.
+- With `FASTAPI_LANGFUSE_PUBLIC_KEY` and `FASTAPI_LANGFUSE_SECRET_KEY`, every call is traced in [Langfuse](https://langfuse.com) with the user id, the request id and the tokens; prompts and answers stay out of the traces unless `FASTAPI_LANGFUSE_CAPTURE_CONTENT=true`.
+- No test calls Anthropic or Langfuse: the `fake_chat_model` fixture answers what the test prepares.
+
+<!-- copier:ai:end -->
 <!-- copier:celery:start -->
 ## Background jobs
 
@@ -302,6 +320,7 @@ app/
 ├── filters/             # FilterBase: declarative filters, search and ordering
 ├── ratelimit/           # rate limits with counters in PostgreSQL
 ├── jobs/                # Celery app, beat schedule and tasks  # copier:celery
+├── ai/                  # Claude through LangChain: chat model, prompts, Langfuse tracing  # copier:ai
 ├── cli/                 # Typer management CLI: seed, shell
 └── migrations/          # Alembic environment and revisions
 tests/
@@ -397,6 +416,13 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `SENTRY_DSN` | — | Enables Sentry in the `remote` image <!-- copier:sentry --> |
 | `SENTRY_ENVIRONMENT` | — | Environment name shown in Sentry (e.g. `production`) <!-- copier:sentry --> |
 | `FASTAPI_SENTRY_TRACES_SAMPLE_RATE` | `0` | Share of requests traced for Sentry performance monitoring (`0` to `1`) <!-- copier:sentry --> |
+| `FASTAPI_ANTHROPIC_API_KEY` | — | Enables the AI features (use a workspace with a spend limit) <!-- copier:ai --> |
+| `FASTAPI_AI_MODEL` | `claude-opus-5-5` | Claude model of the AI features <!-- copier:ai --> |
+| `FASTAPI_AI_TIMEOUT_SECONDS` / `FASTAPI_AI_MAX_RETRIES` | `60` / `1` | Timeout of a call to the model, and retries on timeouts, rate limits and overloads <!-- copier:ai --> |
+| `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR` | `20` | AI requests per user <!-- copier:ai --> |
+| `FASTAPI_LANGFUSE_PUBLIC_KEY` / `FASTAPI_LANGFUSE_SECRET_KEY` | — | Enable the Langfuse tracing of the AI calls <!-- copier:ai --> |
+| `FASTAPI_LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | Langfuse server (e.g. `https://us.cloud.langfuse.com`, or your own) <!-- copier:ai --> |
+| `FASTAPI_LANGFUSE_CAPTURE_CONTENT` | `false` | Also send the prompts and the answers to Langfuse; they can hold personal data <!-- copier:ai --> |
 | `FASTAPI_CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL of the Celery broker (in Compose, the `redis` service) <!-- copier:celery --> |
 | `FASTAPI_CELERY_WORKER_CONCURRENCY` | `2` | Processes of a Celery worker (~75 MiB each) <!-- copier:celery --> |
 | `WEB_CONCURRENCY` | `2` | Number of gunicorn workers |
@@ -418,6 +444,7 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
 - [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
 - [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (see [Scheduled jobs](#scheduled-jobs)). <!-- copier:!celery -->
+- [ ] **AI** (if used): an Anthropic API key from a workspace with a spend limit, and a look at `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR`. LangChain and the Anthropic SDK add ~90 MiB to each worker and a few seconds to its start: size the memory for it. Turn on `FASTAPI_LANGFUSE_CAPTURE_CONTENT` only if the users' data may leave for Langfuse. <!-- copier:ai -->
 - [ ] **Background jobs**: from the backend image, run the workers (`celery --app app.jobs.worker worker`) and **exactly one** beat (`celery --app app.jobs.worker beat`: two would send every scheduled task twice), with `FASTAPI_CELERY_BROKER_URL` pointing to Redis. On stop, a worker finishes its running tasks: give it a grace period longer than the longest task. <!-- copier:celery -->
 - [ ] **Monitoring**: probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
 - [ ] **Sentry**: `SENTRY_DSN` and `SENTRY_ENVIRONMENT`. <!-- copier:sentry -->
@@ -444,6 +471,7 @@ Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the lat
 | `copyright_year` | 2026 (this year) | license |
 | `background_jobs` | cron | `cron`: `purge` is a command for your scheduler; `celery`: a Celery worker and beat with Redis |
 | `sentry` | yes | error reporting with Sentry in the `remote` image |
+| `ai` | no | AI features with Claude (LangChain, Langfuse tracing) and the subtask suggestion route |
 
 `--trust` lets Copier run `.copier/prune.py`, which writes the answers into the project and re-locks the dependencies with uv. The answers are saved in `.copier-answers.yml`: commit it, and later bring in the template's improvements with:
 
@@ -465,7 +493,8 @@ Copier merges the changes with yours; review them with `git diff` (and any `.rej
 - [x] Hardening from external reviews: password hashing off the event loop, rate limits, concurrent refreshes, explicit account linking, streamed exports
 - [x] Email verification and password reset
 - [x] Copier template, with Sentry and Celery as options, migrations in branches
-- [ ] AI module (LangChain, Langfuse) and payments (Polar) as options, and the `v2.0.0` release
+- [x] AI features with Claude as an option: LangChain, Langfuse tracing
+- [ ] Payments (Polar) as an option, and the `v2.0.0` release
 <!-- copier:template:end -->
 
 ## License

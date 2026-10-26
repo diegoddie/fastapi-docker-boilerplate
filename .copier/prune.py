@@ -38,6 +38,7 @@ from pathlib import Path
 # The optional modules, and the answers that turn each one on; "template" marks
 # what only the template needs, so a generated project never has it.
 MODULE_ANSWERS: dict[str, Callable[[Mapping[str, object]], bool]] = {
+    "ai": lambda answers: answers.get("ai") is True,
     "celery": lambda answers: answers.get("background_jobs") == "celery",
     "sentry": lambda answers: answers.get("sentry") is True,
     "template": lambda answers: False,

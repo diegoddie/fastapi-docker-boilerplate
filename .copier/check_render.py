@@ -23,7 +23,11 @@ TEMPLATE_IDENTITY = (
     "diego.boost",
 )
 # The words that betray a module left in a project that turned it off.
-MODULE_KEYWORDS = {"celery": ("celery", "valkey"), "sentry": ("sentry",)}
+MODULE_KEYWORDS = {
+    "ai": ("anthropic", "langchain", "langfuse", "subtask"),
+    "celery": ("celery", "valkey"),
+    "sentry": ("sentry",),
+}
 ANSWERS_FILE = ".copier-answers.yml"
 TEMPLATE_ONLY_PATHS = (
     ".copier",

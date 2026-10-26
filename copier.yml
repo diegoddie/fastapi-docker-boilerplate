@@ -26,6 +26,13 @@ _exclude:
   - .ruff_cache
   - .claude/settings.local.json
   - |-
+    {%- if not ai %}
+    app/ai
+    tests/ai
+    tests/pytest_plugins/ai.py
+    docs/adr/0016-ai-features-with-langchain-and-claude.md
+    {%- endif %}
+  - |-
     {%- if background_jobs != 'celery' %}
     app/jobs
     tests/jobs
@@ -118,3 +125,9 @@ sentry:
   type: bool
   help: Report unexpected errors to Sentry from the remote image (enabled by SENTRY_DSN)
   default: true
+ai:
+  type: bool
+  help: >-
+    AI features with Claude through LangChain, traced in Langfuse; an example route
+    suggests the subtasks of a todo (enabled by an Anthropic API key)
+  default: false
