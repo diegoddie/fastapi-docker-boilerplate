@@ -10,11 +10,8 @@ from sqlmodel import col, delete, exists, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
-# copier:posthog:start
-from app.analytics.constants import SUBSCRIPTION_ENDED, SUBSCRIPTION_STARTED
-from app.analytics.services import Analytics
-
-# copier:posthog:end
+from app.analytics import constants as events  # copier:posthog
+from app.analytics.services import Analytics  # copier:posthog
 from app.core.exceptions import (
     BadRequestHTTPException,
     ConflictHTTPException,
@@ -183,7 +180,9 @@ class PaymentService:
         # copier:posthog:start
         if has_access != had_access:
             analytics.capture(
-                SUBSCRIPTION_STARTED if has_access else SUBSCRIPTION_ENDED,
+                events.SUBSCRIPTION_STARTED
+                if has_access
+                else events.SUBSCRIPTION_ENDED,
                 user.id,
                 {"product_id": snapshot.product_id},
             )

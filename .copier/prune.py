@@ -347,11 +347,15 @@ def orphan_errors(text: str, where: str, markdown: bool) -> list[str]:
     lines = text.splitlines()
     errors = []
     for number, line in enumerate(lines):
+        following = lines[number + 1] if number + 1 < len(lines) else ""
+        if BLOCK.match(line) and following.startswith(("from ", "import ")):
+            # Why: isort wants a blank line before the end marker of a block of
+            # imports, which then stays between imports once the markers go.
+            errors.append(f"{where}:{number + 1}: a block of imports: mark each line")
         marker = LINE.search(line)
         if marker is None or BLOCK.match(line):
             continue
         previous = lines[number - 1].strip() if number else ""
-        following = lines[number + 1] if number + 1 < len(lines) else ""
         if markdown and (line[:1].isspace() or following[:2] == "  "):
             errors.append(f"{where}:{number + 1}: line marker on a multi-line item")
         elif not markdown and previous.startswith("#") and "copier:" not in previous:

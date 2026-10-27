@@ -302,6 +302,10 @@ def test_orphan_errors(modules: frozenset[str]) -> None:
     assert prune.orphan_errors(markdown, "README.md", markdown=True) == [
         "README.md:1: line marker on a multi-line item"
     ]
+    imports = "# copier:sentry:start\nimport sentry_sdk\n\n# copier:sentry:end\n"
+    assert prune.orphan_errors(imports, "main.py", markdown=False) == [
+        "main.py:1: a block of imports: mark each line"
+    ]
     single = "| Monitoring | Sentry <!-- copier:sentry --> |\nx = 1\n"
     assert prune.orphan_errors(single, "README.md", markdown=True) == []
 
