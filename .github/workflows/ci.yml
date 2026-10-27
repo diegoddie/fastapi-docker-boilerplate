@@ -36,7 +36,7 @@ jobs:
       # Why: the image layers are cached between runs, so only what changed is
       # rebuilt; compose.yaml stays the single description of the build.
       - name: Build
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         with:
           source: .
           files: compose.yaml
