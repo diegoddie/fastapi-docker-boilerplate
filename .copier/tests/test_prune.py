@@ -146,8 +146,14 @@ def test_answers_from_json() -> None:
 def test_enabled_modules() -> None:
     """Test a module is turned on by a yes or by the choice that names it."""
     assert prune.enabled_modules(
-        {"ai": True, "background_jobs": "celery", "posthog": True, "sentry": True}
-    ) == frozenset({"ai", "celery", "posthog", "sentry"})
+        {
+            "ai": True,
+            "background_jobs": "celery",
+            "payments": "polar",
+            "posthog": True,
+            "sentry": True,
+        }
+    ) == frozenset({"ai", "celery", "payments", "posthog", "sentry"})
     assert prune.enabled_modules({"background_jobs": "cron"}) == frozenset()
 
 
@@ -284,3 +290,44 @@ def test_python_errors(modules: frozenset[str]) -> None:
         "app.py:2: invalid Python without sentry",
         "app.py:2: invalid Python without payments, sentry",
     ]
+
+
+def test_orphan_errors(modules: frozenset[str]) -> None:
+    """Test a line marker that would leave a comment or half an item behind."""
+    code = "# Why: it reports errors.\ninit_sentry()  # copier:sentry\n"
+    assert prune.orphan_errors(code, "main.py", markdown=False) == [
+        "main.py:2: the comment above stays behind"
+    ]
+    markdown = "- Errors go to Sentry <!-- copier:sentry -->\n  with the request id.\n"
+    assert prune.orphan_errors(markdown, "README.md", markdown=True) == [
+        "README.md:1: line marker on a multi-line item"
+    ]
+    imports = "# copier:sentry:start\nimport sentry_sdk\n\n# copier:sentry:end\n"
+    assert prune.orphan_errors(imports, "main.py", markdown=False) == [
+        "main.py:1: a block of imports: mark each line"
+    ]
+    single = "| Monitoring | Sentry <!-- copier:sentry --> |\nx = 1\n"
+    assert prune.orphan_errors(single, "README.md", markdown=True) == []
+
+
+def test_block_at_the_edges(modules: frozenset[str]) -> None:
+    """Test a block at the start or the end of a file leaves no blank lines there."""
+    text = (
+        "# copier:sentry:start\n"
+        "import sentry_sdk\n"
+        "# copier:sentry:end\n"
+        "\n"
+        "x = 1\n"
+        "\n"
+        "\n"
+        "# copier:sentry:start\n"
+        "def test_sentry() -> None:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "# copier:sentry:end\n"
+    )
+    assert prune_text(text, frozenset({"template"})) == "x = 1\n"
+    assert prune_text(text, frozenset({"template", "sentry"})) == (
+        "import sentry_sdk\n\nx = 1\n\n\ndef test_sentry() -> None:\n    pass\n"
+    )

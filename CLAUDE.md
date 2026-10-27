@@ -32,6 +32,7 @@ docker compose run --rm backend just test               # same, inside Docker
 - `app/emails/`: `EmailSender`, `EmailSenderDep` (sends after the response; console locally, SMTP remotely)
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
 - `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
+- `app/payments/`: `PaymentProvider` and its Polar implementation, checkout, portal, webhooks, the `pro` group (`services.py`), migrations in `app/migrations/versions/payments/` <!-- copier:payments -->
 - `app/analytics/`: `Analytics` (PostHog, disabled, fake), `AnalyticsDep`, `require_feature_flag`, the event names (`constants.py`) <!-- copier:posthog -->
 - `app/ai/`: the chat model (`dependencies.py`), `generate` and the AI features (`services.py`), prompts, answer schemas, Langfuse tracing <!-- copier:ai -->
 - `app/jobs/`: the Celery app and the beat schedule (`worker.py`), the tasks (`tasks.py`) <!-- copier:celery -->
@@ -88,6 +89,13 @@ docker compose run --rm backend just test               # same, inside Docker
   that calls `run_with_session` (`app/core/database.py`) and prints with
   `typer.secho`. Local-only commands call `require_local_environment()`.
   Register them in `app/cli/main.py`.
+<!-- copier:payments:start -->
+- **Payments**: the services talk to `PaymentProvider`, never to Polar's SDK.
+  The `pro` group is a copy of the `subscription` table, recomputed by the
+  webhooks; never set it elsewhere. Paid features are permissions of
+  `GROUPS[Group.PRO]`. Payments migrations go in their branch:
+  `just forge-module payments "..."`.
+<!-- copier:payments:end -->
 <!-- copier:posthog:start -->
 - **Analytics**: a service that records an event takes `analytics: Analytics`
   (the route injects `AnalyticsDep`) and calls `analytics.capture(EVENT,
@@ -151,10 +159,19 @@ docker compose run --rm backend just test               # same, inside Docker
 - No test sends emails (the console backend is forced); read the emails a test
   triggers with the `email_outbox` fixture, and the token of their link with
   `email_token(message)` from `tests/utils.py`.
+<!-- copier:payments:start -->
+- Tests of payments use `polar_provider` (the real provider on a fake API),
+  `polar_webhook` (signs like Polar) and `polar_subscription` (event payloads);
+  no test calls Polar.
+<!-- copier:payments:end -->
+<!-- copier:posthog:start -->
 - Tests of events and flags use the `fake_analytics` fixture (`events`,
-  `enabled_flags`); no test sends anything to PostHog. <!-- copier:posthog -->
+  `enabled_flags`); no test sends anything to PostHog.
+<!-- copier:posthog:end -->
+<!-- copier:ai:start -->
 - Tests of AI features use the `fake_chat_model` fixture: `answer(...)` and
-  `fail(...)` prepare what the model does; no test calls Anthropic or Langfuse. <!-- copier:ai -->
+  `fail(...)` prepare what the model does; no test calls Anthropic or Langfuse.
+<!-- copier:ai:end -->
 - Assert logs with the `log_events` fixture: `log_events("http_request")` returns
   the structlog events with that name, as dicts.
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and
@@ -175,10 +192,11 @@ leave out.
   `template` marks what only the template needs.
 - Module code is an addition, never an alternative: an import, an item of a
   multi-line list (with a trailing comma), a settings block, a router include.
-- A line marker only goes on a statement that fits on one line: the formatter
-  may split a longer one, leaving the marker on its last line alone. Use a
-  block instead; `prune.py check` compiles every Python file with each module
-  off and reports what would break.
+- A line marker only goes on a line that stands alone: a statement that fits
+  on one line (the formatter may split a longer one), with no comment above
+  it, or a single-line Markdown item or table row. Otherwise use a block:
+  `prune.py check` reports what would stay behind, and compiles every Python
+  file with each module off.
 - A new module needs its question in `copier.yml`, its paths in `_exclude`,
   its name in `MODULES` (`.copier/prune.py`), answer sets in
   `.copier/answers/`, and an ADR.

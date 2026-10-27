@@ -16,6 +16,7 @@ from app.core.handlers import register_exceptions_handlers
 from app.core.logs import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.core.sentry import init_sentry  # copier:sentry
+from app.payments.dependencies import close_payments  # copier:payments
 
 configure_logging(settings)
 init_sentry(settings)  # copier:sentry
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Perform pre/post app run operations."""
     yield
     await close_analytics()  # copier:posthog
+    await close_payments()  # copier:payments
     await session_manager.aclose()
 
 

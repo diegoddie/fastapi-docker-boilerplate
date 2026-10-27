@@ -5,6 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.services import AuthService
 from app.core.database import run_with_session
+from app.payments.services import PaymentService  # copier:payments
 from app.ratelimit.services import PostgresRateLimiter
 
 
@@ -14,6 +15,9 @@ async def execute_purge(session: AsyncSession) -> dict[str, int]:
         "refresh tokens": await AuthService.purge_expired_tokens(session),
         "single-use tokens": await AuthService.purge_expired_one_time_tokens(session),
         "rate limit counters": await PostgresRateLimiter.purge_expired(session),
+        # copier:payments:start
+        "webhook events": await PaymentService.purge_webhook_events(session),
+        # copier:payments:end
     }
 
 

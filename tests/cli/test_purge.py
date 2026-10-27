@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta
 
 import pytest
-from inline_snapshot import snapshot
 from sqlmodel.ext.asyncio.session import AsyncSession
 from time_machine import TimeMachineFixture
 from typer.testing import CliRunner
@@ -42,10 +41,19 @@ async def test_execute_purge(
     await PostgresRateLimiter(async_db_session).hit(
         RateLimit("search", 5, timedelta(minutes=1)), "203.0.113.7"
     )
-    assert await execute_purge(async_db_session) == snapshot(
-        {"refresh tokens": 0, "single-use tokens": 0, "rate limit counters": 0}
-    )
+    nothing = await execute_purge(async_db_session)
     time_machine.shift(timedelta(minutes=1))
-    assert await execute_purge(async_db_session) == snapshot(
-        {"refresh tokens": 1, "single-use tokens": 1, "rate limit counters": 1}
+    expired = await execute_purge(async_db_session)
+    assert (nothing.pop("refresh tokens"), expired.pop("refresh tokens")) == (0, 1)
+    assert (nothing.pop("single-use tokens"), expired.pop("single-use tokens")) == (
+        0,
+        1,
     )
+    assert (nothing.pop("rate limit counters"), expired.pop("rate limit counters")) == (
+        0,
+        1,
+    )
+    # copier:payments:start
+    assert (nothing.pop("webhook events"), expired.pop("webhook events")) == (0, 0)
+    # copier:payments:end
+    assert nothing == expired == {}

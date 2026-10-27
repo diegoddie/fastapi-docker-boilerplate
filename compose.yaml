@@ -29,6 +29,10 @@ services:
       - FASTAPI_LANGFUSE_SECRET_KEY  # copier:ai
       - FASTAPI_LOG_FORMAT
       - FASTAPI_LOG_LEVEL
+      - FASTAPI_POLAR_ACCESS_TOKEN  # copier:payments
+      - FASTAPI_POLAR_ENVIRONMENT  # copier:payments
+      - FASTAPI_POLAR_PRODUCT_IDS  # copier:payments
+      - FASTAPI_POLAR_WEBHOOK_SECRET  # copier:payments
       - FASTAPI_POSTHOG_API_KEY  # copier:posthog
       - FASTAPI_POSTHOG_HOST  # copier:posthog
       - FASTAPI_SECRET_KEY

@@ -33,6 +33,15 @@ _exclude:
     docs/adr/0016-ai-features-with-langchain-and-claude.md
     {%- endif %}
   - |-
+    {%- if payments != 'polar' %}
+    app/payments
+    app/migrations/versions/payments
+    tests/payments
+    tests/factories/payments.py
+    tests/pytest_plugins/payments.py
+    docs/adr/0018-subscriptions-with-polar.md
+    {%- endif %}
+  - |-
     {%- if not posthog %}
     app/analytics
     tests/analytics
@@ -132,6 +141,13 @@ sentry:
   type: bool
   help: Report unexpected errors to Sentry from the remote image (enabled by SENTRY_DSN)
   default: true
+payments:
+  type: str
+  help: Sell subscriptions; an active one puts the user in the pro group
+  choices:
+    "none": none
+    "polar: checkout, customer portal and webhooks of Polar (merchant of record)": polar
+  default: none
 posthog:
   type: bool
   help: >-

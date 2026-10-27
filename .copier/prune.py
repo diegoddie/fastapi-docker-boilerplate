@@ -41,6 +41,7 @@ from pathlib import Path
 MODULE_ANSWERS: dict[str, Callable[[Mapping[str, object]], bool]] = {
     "ai": lambda answers: answers.get("ai") is True,
     "celery": lambda answers: answers.get("background_jobs") == "celery",
+    "payments": lambda answers: answers.get("payments") == "polar",
     "posthog": lambda answers: answers.get("posthog") is True,
     "sentry": lambda answers: answers.get("sentry") is True,
     "template": lambda answers: False,
@@ -226,7 +227,11 @@ def normalize_blank_lines(lines: list[str], cuts: set[int]) -> list[str]:
         after = 0
         while cut + after < len(lines) and not lines[cut + after].strip():
             after += 1
-        del lines[cut - min(before, after) : cut]
+        if cut == before:
+            # Why: a cut at the start of a file leaves no leading blank lines.
+            del lines[: cut + after]
+        else:
+            del lines[cut - min(before, after) : cut]
     return lines
 
 
@@ -263,7 +268,10 @@ def prune_text(text: str, modules: frozenset[str], where: str = "<text>") -> str
             cuts.add(len(kept))
     if open_blocks:
         raise MarkerError(f"{where}: {open_blocks[-1][0]!r} is never closed")
-    return "".join(normalize_blank_lines(kept, cuts))
+    pruned = "".join(normalize_blank_lines(kept, cuts))
+    # Why: the blank lines above a marker at the end of the file, removed with
+    # its block or alone, would end it.
+    return pruned.rstrip("\n") + "\n" if pruned != text and pruned.strip() else pruned
 
 
 def text_files(root: Path) -> Iterator[Path]:
@@ -329,6 +337,32 @@ def python_errors(text: str, where: str) -> list[str]:
     return errors
 
 
+def orphan_errors(text: str, where: str, markdown: bool) -> list[str]:
+    """
+    Return the line markers that would leave part of what they mark behind.
+
+    Why: a line marker removes one line; a comment that explains it, or the
+    rest of a Markdown list item it belongs to, would stay. Use a block.
+    """
+    lines = text.splitlines()
+    errors = []
+    for number, line in enumerate(lines):
+        following = lines[number + 1] if number + 1 < len(lines) else ""
+        if BLOCK.match(line) and following.startswith(("from ", "import ")):
+            # Why: isort wants a blank line before the end marker of a block of
+            # imports, which then stays between imports once the markers go.
+            errors.append(f"{where}:{number + 1}: a block of imports: mark each line")
+        marker = LINE.search(line)
+        if marker is None or BLOCK.match(line):
+            continue
+        previous = lines[number - 1].strip() if number else ""
+        if markdown and (line[:1].isspace() or following[:2] == "  "):
+            errors.append(f"{where}:{number + 1}: line marker on a multi-line item")
+        elif not markdown and previous.startswith("#") and "copier:" not in previous:
+            errors.append(f"{where}:{number + 1}: the comment above stays behind")
+    return errors
+
+
 def check(root: Path) -> list[str]:
     """Return the problems of the template: bad markers, stale replacements."""
     problems = []
@@ -340,7 +374,10 @@ def check(root: Path) -> list[str]:
         except MarkerError as e:
             problems.append(str(e))
             continue
-        if path.suffix == ".py" and "copier:" in text:
+        if "copier:" not in text:
+            continue
+        problems.extend(orphan_errors(text, where, markdown=path.suffix == ".md"))
+        if path.suffix == ".py":
             problems.extend(python_errors(text, where))
     for replacement in REPLACEMENTS:
         if replacement.old not in (root / replacement.path).read_text(encoding="utf-8"):

@@ -6,5 +6,6 @@ author_email: jane@example.com
 copyright_year: "2026"
 background_jobs: celery
 sentry: true
+payments: polar
 posthog: true
 ai: true

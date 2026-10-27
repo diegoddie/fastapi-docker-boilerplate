@@ -9,3 +9,7 @@ class Group(StrEnum):
     ADMIN = "admin"
     MEMBER = "member"
     VIEWER = "viewer"
+    # copier:payments:start
+    # Why: given and taken by the payments, from the user's subscriptions.
+    PRO = "pro"
+    # copier:payments:end
