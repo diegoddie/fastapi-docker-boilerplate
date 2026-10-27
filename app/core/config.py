@@ -123,6 +123,17 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CERTS_URL: str = "https://www.googleapis.com/oauth2/v3/certs"
 
+    # copier:posthog:start
+    # PostHog product analytics and feature flags (disabled when the key is not set)
+    # Why: the project API key only lets clients send events, so it is not secret
+    # (the frontend has it too).
+    POSTHOG_API_KEY: str | None = None
+    # Why: the region of the PostHog project; https://us.i.posthog.com for the US.
+    POSTHOG_HOST: str = "https://eu.i.posthog.com"
+    # Why: a route behind a flag waits for PostHog; when it is slow, the flag is off.
+    POSTHOG_FEATURE_FLAGS_TIMEOUT_SECONDS: float = Field(default=1, gt=0)
+
+    # copier:posthog:end
     # copier:ai:start
     # AI with Claude (disabled when the API key is not set)
     ANTHROPIC_API_KEY: SecretStr | None = None

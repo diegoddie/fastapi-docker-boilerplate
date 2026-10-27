@@ -26,6 +26,7 @@ TEMPLATE_IDENTITY = (
 MODULE_KEYWORDS = {
     "ai": ("anthropic", "langchain", "langfuse", "subtask"),
     "celery": ("celery", "valkey"),
+    "posthog": ("posthog",),
     "sentry": ("sentry",),
 }
 ANSWERS_FILE = ".copier-answers.yml"

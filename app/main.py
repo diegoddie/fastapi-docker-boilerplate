@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_pagination import add_pagination
 
+from app.analytics.services import close_analytics  # copier:posthog
 from app.api.router import router as api_router
 from app.core.config import Settings, get_project_description, settings
 from app.core.constants import REQUEST_ID_HEADER
@@ -24,6 +25,7 @@ init_sentry(settings)  # copier:sentry
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Perform pre/post app run operations."""
     yield
+    await close_analytics()  # copier:posthog
     await session_manager.aclose()
 
 

@@ -26,6 +26,7 @@ runs it with its own Python, before the project's environment exists.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -40,6 +41,7 @@ from pathlib import Path
 MODULE_ANSWERS: dict[str, Callable[[Mapping[str, object]], bool]] = {
     "ai": lambda answers: answers.get("ai") is True,
     "celery": lambda answers: answers.get("background_jobs") == "celery",
+    "posthog": lambda answers: answers.get("posthog") is True,
     "sentry": lambda answers: answers.get("sentry") is True,
     "template": lambda answers: False,
 }
@@ -304,16 +306,42 @@ def lock(root: Path) -> None:
         print("`uv lock` failed: run it again in the project.", file=sys.stderr)
 
 
+def module_variants() -> list[frozenset[str]]:
+    """Return the sets of modules to check: each one off in turn, then none."""
+    optional = MODULES - {"template"}
+    return [optional - {name} for name in sorted(optional)] + [frozenset()]
+
+
+def python_errors(text: str, where: str) -> list[str]:
+    """
+    Return the variants in which a Python file would not compile.
+
+    Why: a line marker on the last line of a statement the formatter split
+    (``)  # copier:x``) would leave the rest of the statement behind.
+    """
+    errors = []
+    for modules in module_variants():
+        try:
+            ast.parse(prune_text(text, modules, where))
+        except SyntaxError as e:
+            off = ", ".join(sorted(MODULES - {"template"} - modules))
+            errors.append(f"{where}:{e.lineno}: invalid Python without {off}")
+    return errors
+
+
 def check(root: Path) -> list[str]:
     """Return the problems of the template: bad markers, stale replacements."""
     problems = []
     for path in text_files(root):
+        where = str(path.relative_to(root))
+        text = path.read_text(encoding="utf-8")
         try:
-            prune_text(
-                path.read_text(encoding="utf-8"), MODULES, str(path.relative_to(root))
-            )
+            prune_text(text, MODULES, where)
         except MarkerError as e:
             problems.append(str(e))
+            continue
+        if path.suffix == ".py" and "copier:" in text:
+            problems.extend(python_errors(text, where))
     for replacement in REPLACEMENTS:
         if replacement.old not in (root / replacement.path).read_text(encoding="utf-8"):
             problems.append(f"{replacement.path}: {replacement.old!r} not found")

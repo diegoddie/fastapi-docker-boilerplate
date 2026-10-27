@@ -8,6 +8,8 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
+from app.analytics.constants import TODO_CREATED  # copier:posthog
+from app.analytics.services import Analytics  # copier:posthog
 from app.core.exceptions import NotFoundHTTPException
 from app.todos.constants import CAN_MANAGE_ALL_TODOS
 from app.todos.models import Todo
@@ -58,12 +60,23 @@ class TodoService:
 
     @staticmethod
     async def create(
-        payload: TodoPublicSchemaCreate, session: AsyncSession, user: User
+        payload: TodoPublicSchemaCreate,
+        session: AsyncSession,
+        user: User,
+        analytics: Analytics,  # copier:posthog
     ) -> Todo:
         """Create a todo owned by the user."""
         todo = Todo.model_validate(payload.model_dump() | {"owner_id": user.id})
         session.add(todo)
         await session.commit()
+        # copier:posthog:start
+        # Why: what the product needs to know, never the text the user wrote.
+        analytics.capture(
+            TODO_CREATED,
+            user.id,
+            {"priority": todo.priority, "has_due_date": todo.due_date is not None},
+        )
+        # copier:posthog:end
         return todo
 
     @staticmethod

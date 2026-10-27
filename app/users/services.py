@@ -9,6 +9,8 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
+from app.analytics.constants import USER_SIGNED_UP  # copier:posthog
+from app.analytics.services import Analytics  # copier:posthog
 from app.auth.security import PasswordHasher
 from app.auth.services import AuthService
 from app.core.exceptions import ForbiddenHTTPException, NotFoundHTTPException
@@ -74,10 +76,14 @@ class UserService:
         session: AsyncSession,
         hasher: PasswordHasher,
         sender: EmailSender,
+        analytics: Analytics,  # copier:posthog
     ) -> User:
         """Create a member and email them a link to verify their address."""
         user = await UserService.create(payload, session, hasher)
         await AuthService.request_email_verification(user, session, sender)
+        # copier:posthog:start
+        analytics.capture(USER_SIGNED_UP, user.id, {"method": "password"})
+        # copier:posthog:end
         return user
 
     @staticmethod

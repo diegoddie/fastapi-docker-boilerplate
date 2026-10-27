@@ -146,8 +146,8 @@ def test_answers_from_json() -> None:
 def test_enabled_modules() -> None:
     """Test a module is turned on by a yes or by the choice that names it."""
     assert prune.enabled_modules(
-        {"ai": True, "background_jobs": "celery", "sentry": True}
-    ) == frozenset({"ai", "celery", "sentry"})
+        {"ai": True, "background_jobs": "celery", "posthog": True, "sentry": True}
+    ) == frozenset({"ai", "celery", "posthog", "sentry"})
     assert prune.enabled_modules({"background_jobs": "cron"}) == frozenset()
 
 
@@ -274,4 +274,13 @@ def test_leftovers(tmp_path: Path) -> None:
         "app.py:1: marker left",
         "app.py:2: 'fastapi-docker-boilerplate' left",
         ".copier-answers.yml is missing",
+    ]
+
+
+def test_python_errors(modules: frozenset[str]) -> None:
+    """Test a line marker left on the end of a split statement is reported."""
+    text = "x = 1\nprint(\n    x\n)  # copier:sentry\n"
+    assert prune.python_errors(text, "app.py") == [
+        "app.py:2: invalid Python without sentry",
+        "app.py:2: invalid Python without payments, sentry",
     ]

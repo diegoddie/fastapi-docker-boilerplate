@@ -20,6 +20,7 @@ from tests.utils import AsyncClient
 
 pytest_plugins: list[str] = [
     "tests.pytest_plugins.ai",  # copier:ai
+    "tests.pytest_plugins.analytics",  # copier:posthog
     "tests.pytest_plugins.auth",
     "tests.pytest_plugins.core",
     "tests.pytest_plugins.database",

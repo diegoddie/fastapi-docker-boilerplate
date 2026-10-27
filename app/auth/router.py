@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
+from app.analytics.dependencies import AnalyticsDep  # copier:posthog
 from app.auth.dependencies import (
     AuthenticatedUser,
     limit_auth_requests,
@@ -53,9 +54,16 @@ async def register_user_route(
     session: AsyncDBSession,
     hasher: PasswordHasherDep,
     sender: EmailSenderDep,
+    analytics: AnalyticsDep,  # copier:posthog
 ) -> Any:
     """Register user route: the new member gets a link to verify the address."""
-    return await UserService.register(payload, session, hasher, sender)
+    return await UserService.register(
+        payload,
+        session,
+        hasher,
+        sender,
+        analytics,  # copier:posthog
+    )
 
 
 @router.post(
@@ -123,10 +131,16 @@ async def request_email_verification_route(
     dependencies=[Depends(limit_auth_requests)],
 )
 async def verify_email_route(
-    payload: OneTimeTokenPublicSchemaPayload, session: AsyncDBSession
+    payload: OneTimeTokenPublicSchemaPayload,
+    session: AsyncDBSession,
+    analytics: AnalyticsDep,  # copier:posthog
 ) -> None:
     """Verify email route."""
-    await AuthService.verify_email(payload.token, session)
+    await AuthService.verify_email(
+        payload.token,
+        session,
+        analytics,  # copier:posthog
+    )
 
 
 @router.post(
@@ -169,9 +183,15 @@ async def login_google_user_route(
     session: AsyncDBSession,
     provider: GoogleIdentityProviderDep,
     codec: AccessTokenCodecDep,
+    analytics: AnalyticsDep,  # copier:posthog
 ) -> Any:
     """Login Google user route (the frontend sends the ID token Google issued)."""
-    user = await AuthService.authenticate_external(payload.id_token, provider, session)
+    user = await AuthService.authenticate_external(
+        payload.id_token,
+        provider,
+        session,
+        analytics,  # copier:posthog
+    )
     return await AuthService.issue_tokens(user, session, codec)
 
 
