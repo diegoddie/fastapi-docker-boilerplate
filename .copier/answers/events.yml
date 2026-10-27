@@ -1,0 +1,12 @@
+# A slug chosen by hand, an apostrophe in the author; Celery and PostHog.
+project_name: Events
+project_slug: events-api
+project_description: Events, tickets and check-ins.
+author_name: Siobhán O'Brien
+author_email: siobhan@example.ie
+copyright_year: "2026"
+background_jobs: celery
+sentry: false
+payments: none
+posthog: true
+ai: false

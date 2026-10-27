@@ -531,6 +531,8 @@ uvx copier update --trust
 
 Copier merges the changes with yours; review them with `git diff` (and any `.rej` file) before committing. How the template works: [ADR 0013](docs/adr/0013-the-template-prunes-a-working-app.md).
 
+The template's CI checks what it promises. On every change, it generates six projects whose options meet every value of every other option, and runs each project's own CI on it (tests at 100% coverage, a Celery worker, migrations down and up); it also generates a project from the previous version, changes it like a team would, updates it to the new version and runs its CI again. Every Monday it generates all 32 combinations of the options.
+
 ## Roadmap
 
 - [x] Foundations: tooling, core infrastructure, Docker, CI
