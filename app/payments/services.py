@@ -162,7 +162,7 @@ class PaymentService:
             await session.commit()
             return
         await PaymentService._save_snapshot(snapshot, user, session)
-        had_access = Group.PRO in user.groups
+        had_access = Group.PRO in user.groups  # copier:posthog
         has_access = await PaymentService.has_access(user.id, session)
         # Why: the group is a copy of the table, recomputed on every change.
         user.groups = [group for group in user.groups if group != Group.PRO] + (

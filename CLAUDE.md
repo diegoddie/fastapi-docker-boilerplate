@@ -198,8 +198,11 @@ leave out.
   `prune.py check` reports what would stay behind, and compiles every Python
   file with each module off.
 - A new module needs its question in `copier.yml`, its paths in `_exclude`,
-  its name in `MODULES` (`.copier/prune.py`), answer sets in
-  `.copier/answers/`, and an ADR.
+  its predicate in `MODULE_ANSWERS` (`.copier/prune.py`), its keywords in
+  `check_render.py`, its values in `OPTIONS` (`.copier/matrix.py`), an answer
+  in every set of `.copier/answers/` such that every value of every option
+  still meets every value of every other one (`python3 .copier/matrix.py
+  check`), and an ADR.
 - A module with tables starts its own migration branch
   ([ADR 0014](docs/adr/0014-migrations-in-branches.md)): add
   `%(here)s/versions/<module>` to `version_locations` in `alembic.ini`, between
@@ -207,9 +210,13 @@ leave out.
   --branch-label <module> --depends-on 57fac5921361
   --version-path "$PWD/app/migrations/versions/<module>" -m "..."`; later
   migrations come from `just forge-module <module> "..."`.
-- Check with `uv run --group template python .copier/prune.py check`,
-  `just template-render .copier/answers/acme.yml /tmp/acme` (renders the
-  working tree) and the template CI.
+- Check with `python3 .copier/prune.py check`, `just template-render
+  .copier/answers/acme.yml /tmp/acme` (renders the working tree), then in the
+  rendered project `uv run --group test ruff check . && uv run --group test
+  ruff format --check .` before waiting for the template CI. The CI generates
+  a project from each answer set and runs its CI; updates a project generated
+  from the previous version (the pull request's base) with changes of its own;
+  and every Monday generates every combination of the options.
 
 <!-- copier:template:end -->
 ## Definition of done

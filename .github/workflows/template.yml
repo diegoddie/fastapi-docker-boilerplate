@@ -1,15 +1,30 @@
-# The template's own CI (not copied into generated projects): it generates a
-# project from each answer set and runs that project's CI on it.
+# The template's own CI (not copied into generated projects): it generates
+# projects from the answer sets, runs their CI on them, and updates a project
+# generated from the previous version to this one.
 name: Template
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Every combination of the options, every Monday.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      every_combination:
+        description: Generate every combination of the options (32 projects)
+        type: boolean
+        default: false
 
 concurrency:
-  group: template-${{ github.ref }}
+  group: template-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  BACKEND_BUILD_TARGET: test
+  # Not a real secret: it only signs the tokens of the throwaway test database.
+  FASTAPI_SECRET_KEY: ci-only-secret-key-for-the-test-suite-0123456789
 
 jobs:
   engine:
@@ -20,6 +35,8 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - name: Check the markers and the replacements
         run: python3 .copier/prune.py check
+      - name: Check the answer sets meet every pair of option values
+        run: python3 .copier/matrix.py check
       - name: Lint and type check the template's scripts
         run: |
           uv run --group test ruff check .copier
@@ -28,22 +45,27 @@ jobs:
       - name: Test the template's scripts
         run: uv run --group test pytest .copier/tests
 
+  matrix:
+    name: Projects to generate
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.matrix.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: matrix
+        env:
+          SCOPE: >-
+            ${{ (github.event_name == 'schedule' || inputs.every_combination)
+            && 'all' || 'pairwise' }}
+        run: echo "projects=$(python3 .copier/matrix.py "$SCOPE")" >> "$GITHUB_OUTPUT"
+
   generate:
-    name: Generated project (${{ matrix.answers }})
-    needs: engine
+    name: Generated project (${{ matrix.name }})
+    needs: [engine, matrix]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - answers: acme
-            celery: true
-          - answers: todo
-            celery: false
-    env:
-      BACKEND_BUILD_TARGET: test
-      # Not a real secret: it only signs the tokens of the throwaway test database.
-      FASTAPI_SECRET_KEY: ci-only-secret-key-for-the-test-suite-0123456789
+      matrix: ${{ fromJSON(needs.matrix.outputs.projects) }}
     steps:
       # Why: the runner context is not available in the job's env.
       - name: Set the project directory
@@ -56,8 +78,7 @@ jobs:
       - name: Generate the project
         run: >-
           uv run --group template copier copy --trust --defaults --vcs-ref HEAD
-          --data-file ".copier/answers/${{ matrix.answers }}.yml"
-          "$GITHUB_WORKSPACE" "$PROJECT"
+          ${{ matrix.args }} "$GITHUB_WORKSPACE" "$PROJECT"
       - name: Check nothing of the template is left
         run: python3 .copier/check_render.py "$PROJECT"
       - name: Check the lockfile, the shell scripts and the compose file
@@ -73,9 +94,7 @@ jobs:
           workdir: ${{ env.PROJECT }}
           files: compose.yaml
           load: true
-          set: |
-            *.cache-from=type=gha,scope=template-${{ matrix.answers }}
-            *.cache-to=type=gha,mode=max,scope=template-${{ matrix.answers }}
+          set: ${{ matrix.bake_set }}
       - name: Run the project's checks and tests
         working-directory: ${{ env.PROJECT }}
         run: docker compose run --rm backend
@@ -98,6 +117,72 @@ jobs:
             copier recopy --trust --defaults --overwrite --vcs-ref HEAD
           git status --porcelain
           test -z "$(git status --porcelain)"
+      - name: Tear down
+        if: always()
+        working-directory: ${{ env.PROJECT }}
+        run: docker compose down -v || true
+
+  update:
+    name: Updated project (acme)
+    needs: engine
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      # Why: a pull request updates from its base; a push from the commit it
+      # replaced on main.
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Set the project directory
+        run: echo "PROJECT=$RUNNER_TEMP/project" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Generate the project from the previous version
+        run: >-
+          uv run --group template copier copy --trust --defaults
+          --vcs-ref "${BASE:-$(git rev-parse HEAD^)}"
+          --data-file .copier/answers/acme.yml "$GITHUB_WORKSPACE" "$PROJECT"
+      - name: Change the project, as its developers would
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          git init --quiet
+          git add --all
+          git -c user.name=ci -c user.email=ci@example.com commit --quiet -m generated
+          echo 'OUR_SETTING = "kept"' >> app/core/constants.py
+          printf '\n## Our notes\n\nKept by the update.\n' >> README.md
+          mkdir app/notes
+          echo '"""The notes package."""' > app/notes/__init__.py
+          git add --all
+          git -c user.name=ci -c user.email=ci@example.com commit --quiet -m "our changes"
+      - name: Update the project to this version
+        working-directory: ${{ env.PROJECT }}
+        run: >-
+          uv run --project "$GITHUB_WORKSPACE" --group template copier update --trust
+          --defaults --vcs-ref HEAD --data-file "$GITHUB_WORKSPACE/.copier/answers/acme.yml"
+      - name: Check the update merged, and kept our changes
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          git status --short
+          if find . -name '*.rej' -not -path './.git/*' | grep .; then exit 1; fi
+          if grep -rIl --exclude-dir=.git -e '^<<<<<<< ' -e '^>>>>>>> ' .; then exit 1; fi
+          grep -q 'OUR_SETTING = "kept"' app/core/constants.py
+          grep -q 'Kept by the update.' README.md
+          test -f app/notes/__init__.py
+          python3 "$GITHUB_WORKSPACE/.copier/check_render.py" .
+          uv lock --check
+      - name: Build
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          workdir: ${{ env.PROJECT }}
+          files: compose.yaml
+          load: true
+          set: "*.cache-from=type=gha,scope=template-acme"
+      - name: Run the project's checks and tests
+        working-directory: ${{ env.PROJECT }}
+        run: docker compose run --rm backend
       - name: Tear down
         if: always()
         working-directory: ${{ env.PROJECT }}

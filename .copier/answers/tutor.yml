@@ -1,0 +1,10 @@
+# The default description; AI and Polar, without Sentry or PostHog.
+project_name: Tutor
+author_name: Ada Okafor
+author_email: ada@example.org
+copyright_year: "2026"
+background_jobs: cron
+sentry: false
+payments: polar
+posthog: false
+ai: true

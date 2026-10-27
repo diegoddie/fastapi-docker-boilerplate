@@ -313,8 +313,10 @@ the route passes in like the email sender: `PostHogAnalytics` with a key,
   on every request and answers `404` when it is off; a timeout or an error
   turns the flag off.
 - The client is bound to the event loop of the worker that creates it, so the
-  analytics belong to the API; a Celery task, which runs in a loop of its own,
-  would need a client per run.
+  analytics belong to the API.
+<!-- copier:celery:start -->
+  A Celery task, which runs in a loop of its own, would need a client per run.
+<!-- copier:celery:end -->
 <!-- copier:posthog:end -->
 <!-- copier:ai:start -->
 ## AI

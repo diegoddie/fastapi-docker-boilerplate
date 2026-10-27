@@ -1,0 +1,11 @@
+# Accents in the author, an explicit description; Sentry, Celery and AI.
+project_name: Field Notes
+project_description: Notes from the field, summarized by Claude.
+author_name: María José Núñez
+author_email: maria@example.es
+copyright_year: "2026"
+background_jobs: celery
+sentry: true
+payments: none
+posthog: false
+ai: true
