@@ -290,3 +290,17 @@ def test_python_errors(modules: frozenset[str]) -> None:
         "app.py:2: invalid Python without sentry",
         "app.py:2: invalid Python without payments, sentry",
     ]
+
+
+def test_orphan_errors(modules: frozenset[str]) -> None:
+    """Test a line marker that would leave a comment or half an item behind."""
+    code = "# Why: it reports errors.\ninit_sentry()  # copier:sentry\n"
+    assert prune.orphan_errors(code, "main.py", markdown=False) == [
+        "main.py:2: the comment above stays behind"
+    ]
+    markdown = "- Errors go to Sentry <!-- copier:sentry -->\n  with the request id.\n"
+    assert prune.orphan_errors(markdown, "README.md", markdown=True) == [
+        "README.md:1: line marker on a multi-line item"
+    ]
+    single = "| Monitoring | Sentry <!-- copier:sentry --> |\nx = 1\n"
+    assert prune.orphan_errors(single, "README.md", markdown=True) == []

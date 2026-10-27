@@ -330,6 +330,28 @@ def python_errors(text: str, where: str) -> list[str]:
     return errors
 
 
+def orphan_errors(text: str, where: str, markdown: bool) -> list[str]:
+    """
+    Return the line markers that would leave part of what they mark behind.
+
+    Why: a line marker removes one line; a comment that explains it, or the
+    rest of a Markdown list item it belongs to, would stay. Use a block.
+    """
+    lines = text.splitlines()
+    errors = []
+    for number, line in enumerate(lines):
+        marker = LINE.search(line)
+        if marker is None or BLOCK.match(line):
+            continue
+        previous = lines[number - 1].strip() if number else ""
+        following = lines[number + 1] if number + 1 < len(lines) else ""
+        if markdown and (line[:1].isspace() or following[:2] == "  "):
+            errors.append(f"{where}:{number + 1}: line marker on a multi-line item")
+        elif not markdown and previous.startswith("#") and "copier:" not in previous:
+            errors.append(f"{where}:{number + 1}: the comment above stays behind")
+    return errors
+
+
 def check(root: Path) -> list[str]:
     """Return the problems of the template: bad markers, stale replacements."""
     problems = []
@@ -341,7 +363,10 @@ def check(root: Path) -> list[str]:
         except MarkerError as e:
             problems.append(str(e))
             continue
-        if path.suffix == ".py" and "copier:" in text:
+        if "copier:" not in text:
+            continue
+        problems.extend(orphan_errors(text, where, markdown=path.suffix == ".md"))
+        if path.suffix == ".py":
             problems.extend(python_errors(text, where))
     for replacement in REPLACEMENTS:
         if replacement.old not in (root / replacement.path).read_text(encoding="utf-8"):

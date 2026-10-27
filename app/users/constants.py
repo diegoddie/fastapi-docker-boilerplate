@@ -35,8 +35,10 @@ GROUPS: dict[Group, frozenset[str]] = {
     Group.ADMIN: USER_PERMISSIONS | TODO_PERMISSIONS | {CAN_MANAGE_ALL_TODOS},
     Group.MEMBER: TODO_PERMISSIONS,
     Group.VIEWER: frozenset({CAN_VIEW_TODO}),
+    # copier:payments:start
     # Why: the paid features, for the users with an active subscription.
-    Group.PRO: frozenset({CAN_USE_PRO_FEATURES}),  # copier:payments
+    Group.PRO: frozenset({CAN_USE_PRO_FEATURES}),
+    # copier:payments:end
 }
 
 DEFAULT_GROUPS: tuple[Group, ...] = (Group.MEMBER,)

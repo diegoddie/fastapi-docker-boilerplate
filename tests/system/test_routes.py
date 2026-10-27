@@ -62,8 +62,10 @@ def test_every_route_requires_authentication(test_app: FastAPI) -> None:
         "/api/v1/auth/email/verify/",
         "/api/v1/auth/password/forgot/",
         "/api/v1/auth/password/reset/",
+        # copier:payments:start
         # Why: Polar calls it; the signature proves the sender.
-        "/api/v1/payments/webhook/",  # copier:payments
+        "/api/v1/payments/webhook/",
+        # copier:payments:end
     }
     # Why: the OpenAPI schema lists a security requirement for every operation
     # that depends on the bearer token, i.e. exactly what clients will see.

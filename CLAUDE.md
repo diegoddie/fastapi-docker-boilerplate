@@ -159,13 +159,19 @@ docker compose run --rm backend just test               # same, inside Docker
 - No test sends emails (the console backend is forced); read the emails a test
   triggers with the `email_outbox` fixture, and the token of their link with
   `email_token(message)` from `tests/utils.py`.
+<!-- copier:payments:start -->
 - Tests of payments use `polar_provider` (the real provider on a fake API),
   `polar_webhook` (signs like Polar) and `polar_subscription` (event payloads);
-  no test calls Polar. <!-- copier:payments -->
+  no test calls Polar.
+<!-- copier:payments:end -->
+<!-- copier:posthog:start -->
 - Tests of events and flags use the `fake_analytics` fixture (`events`,
-  `enabled_flags`); no test sends anything to PostHog. <!-- copier:posthog -->
+  `enabled_flags`); no test sends anything to PostHog.
+<!-- copier:posthog:end -->
+<!-- copier:ai:start -->
 - Tests of AI features use the `fake_chat_model` fixture: `answer(...)` and
-  `fail(...)` prepare what the model does; no test calls Anthropic or Langfuse. <!-- copier:ai -->
+  `fail(...)` prepare what the model does; no test calls Anthropic or Langfuse.
+<!-- copier:ai:end -->
 - Assert logs with the `log_events` fixture: `log_events("http_request")` returns
   the structlog events with that name, as dicts.
 - `# pragma: no cover` only for `TYPE_CHECKING` blocks, CLI wrappers and
@@ -186,10 +192,11 @@ leave out.
   `template` marks what only the template needs.
 - Module code is an addition, never an alternative: an import, an item of a
   multi-line list (with a trailing comma), a settings block, a router include.
-- A line marker only goes on a statement that fits on one line: the formatter
-  may split a longer one, leaving the marker on its last line alone. Use a
-  block instead; `prune.py check` compiles every Python file with each module
-  off and reports what would break.
+- A line marker only goes on a line that stands alone: a statement that fits
+  on one line (the formatter may split a longer one), with no comment above
+  it, or a single-line Markdown item or table row. Otherwise use a block:
+  `prune.py check` reports what would stay behind, and compiles every Python
+  file with each module off.
 - A new module needs its question in `copier.yml`, its paths in `_exclude`,
   its name in `MODULES` (`.copier/prune.py`), answer sets in
   `.copier/answers/`, and an ADR.
