@@ -3,6 +3,7 @@
 import pytest
 
 from app.ai.constants import CAN_SUGGEST_TODO_SUBTASKS  # copier:ai
+from app.payments.constants import CAN_USE_PRO_FEATURES  # copier:payments
 from app.todos.constants import (
     CAN_CREATE_TODO,
     CAN_DELETE_TODO,
@@ -54,8 +55,16 @@ from app.users.models import User
             },
         ),
         ([], set()),
+        ([Group.PRO], {CAN_USE_PRO_FEATURES}),  # copier:payments
     ],
-    ids=["admin", "member", "viewer", "several_groups", "no_groups"],
+    ids=[
+        "admin",
+        "member",
+        "viewer",
+        "several_groups",
+        "no_groups",
+        "pro",  # copier:payments
+    ],
 )
 def test_user_permissions(groups: list[str], permissions: set[str]) -> None:
     """Test a user has the union of the permissions of their groups."""

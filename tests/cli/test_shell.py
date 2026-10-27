@@ -31,8 +31,10 @@ def test_get_shell_namespace() -> None:
             "OneTimeToken",
             "RateLimitCounter",
             "RefreshToken",
+            "Subscription",  # copier:payments
             "Todo",
             "User",
+            "WebhookEvent",  # copier:payments
         ]
     )
     assert namespace["User"] is User

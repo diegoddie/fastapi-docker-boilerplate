@@ -7,6 +7,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "adaptix"
+version = "3.0.0b12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/82/aa17eb2968cf7c78caf4915ca62397214f196dc1bef07e4d81bfb4c4abc5/adaptix-3.0.0b12.tar.gz", hash = "sha256:906053a39ff509f0aa4ca9faa07dffa205bd90fa41d9774cd849d3454565b0ea", size = 128634, upload-time = "2026-04-04T17:31:01.084Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/66/abcca849b17e4a3adf5116e58c51471f37264a190cee2c67f1ba57782a7f/adaptix-3.0.0b12-py3-none-any.whl", hash = "sha256:8156f0549b96fcd193d13efca7bfbda39b3d6389085556d930e204c09f9ae6ed", size = 188651, upload-time = "2026-04-04T17:30:59.17Z" },
+]
+
+[[package]]
 name = "alembic"
 version = "1.20.0"
 source = { registry = "https://pypi.org/simple" }
@@ -890,6 +899,7 @@ dependencies = [
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langfuse" },
+    { name = "polar-sdk" },
     { name = "posthog" },
     { name = "psycopg" },
     { name = "pwdlib", extra = ["argon2"] },
@@ -948,6 +958,7 @@ requires-dist = [
     { name = "langchain-anthropic", specifier = "~=1.7.6" },
     { name = "langchain-core", specifier = "~=1.6.13" },
     { name = "langfuse", specifier = "~=5.0.4" },
+    { name = "polar-sdk", specifier = "~=1.0.2" },
     { name = "posthog", specifier = "~=7.75.11" },
     { name = "psycopg", specifier = "~=3.3.6" },
     { name = "pwdlib", extras = ["argon2"], specifier = "~=0.3.1" },
@@ -2086,6 +2097,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6c/d2/578712a979a50e9aba08ea173a38e7598461130d3c9899f176373bc03280/plumbum-2.0.2.tar.gz", hash = "sha256:233751d7819c9e6743ec1c2405927eb4fa52a284c7b894bd10e28106a9309a92", size = 390799, upload-time = "2026-07-22T04:13:12.157Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/55/fdd01894807d20fb6181f13590ae247585b10e909b42e6ada833379fe520/plumbum-2.0.2-py3-none-any.whl", hash = "sha256:a865771826c1d2cce0ca8b2a2c48aa0447ed7a518859e389a95f158e9c369547", size = 168804, upload-time = "2026-07-22T04:13:10.76Z" },
+]
+
+[[package]]
+name = "polar-sdk"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "adaptix" },
+    { name = "httpx" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/10/b4/6ff182038bd8d133c84061ed2d8c907f9f53f3ca3a25cf1726bee2dbec42/polar_sdk-1.0.2.tar.gz", hash = "sha256:9df91d57f7b9cb62162c1e64274e8b3cf556e4db711ac9c49b928f6bef9aeada", size = 327581, upload-time = "2026-10-02T07:00:30.008Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/e2/abec9d0e022b0cde10333fd937dba2b7057cacd3fe0a90b2c3340a02cc22/polar_sdk-1.0.2-py3-none-any.whl", hash = "sha256:170379262decb1c390e5e3c69b819cff1e3866045d08069bd49097e89760963a", size = 458808, upload-time = "2026-10-02T07:00:28.451Z" },
 ]
 
 [[package]]

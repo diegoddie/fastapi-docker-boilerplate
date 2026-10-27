@@ -1,0 +1,1 @@
+"""The payments package tests."""

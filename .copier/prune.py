@@ -41,6 +41,7 @@ from pathlib import Path
 MODULE_ANSWERS: dict[str, Callable[[Mapping[str, object]], bool]] = {
     "ai": lambda answers: answers.get("ai") is True,
     "celery": lambda answers: answers.get("background_jobs") == "celery",
+    "payments": lambda answers: answers.get("payments") == "polar",
     "posthog": lambda answers: answers.get("posthog") is True,
     "sentry": lambda answers: answers.get("sentry") is True,
     "template": lambda answers: False,

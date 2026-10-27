@@ -111,6 +111,13 @@ class UserService:
                 error_code="SELF_ACCESS_CHANGE",
             )
         user = await UserService.get_by_id(user_id, session)
+        # copier:payments:start
+        if "groups" in data:
+            # Why: the pro group follows the user's subscriptions; an
+            # administrator neither grants it nor takes it away.
+            data["groups"] = [group for group in data["groups"] if group != Group.PRO]
+            data["groups"] += [Group.PRO] if Group.PRO in user.groups else []
+        # copier:payments:end
         user.sqlmodel_update(data)
         session.add(user)
         if not user.is_active:

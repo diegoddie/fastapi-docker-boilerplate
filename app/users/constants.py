@@ -1,6 +1,7 @@
 """The users package constants."""
 
 from app.ai.constants import CAN_SUGGEST_TODO_SUBTASKS  # copier:ai
+from app.payments.constants import CAN_USE_PRO_FEATURES  # copier:payments
 from app.todos.constants import (
     CAN_CREATE_TODO,
     CAN_DELETE_TODO,
@@ -34,6 +35,8 @@ GROUPS: dict[Group, frozenset[str]] = {
     Group.ADMIN: USER_PERMISSIONS | TODO_PERMISSIONS | {CAN_MANAGE_ALL_TODOS},
     Group.MEMBER: TODO_PERMISSIONS,
     Group.VIEWER: frozenset({CAN_VIEW_TODO}),
+    # Why: the paid features, for the users with an active subscription.
+    Group.PRO: frozenset({CAN_USE_PRO_FEATURES}),  # copier:payments
 }
 
 DEFAULT_GROUPS: tuple[Group, ...] = (Group.MEMBER,)

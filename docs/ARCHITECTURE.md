@@ -38,6 +38,7 @@ flowchart LR
 | `app/todos` | the example domain: the reference to copy for new features |
 | `app/cli` | Typer management CLI and the cross-domain commands (`seed`, `shell`) |
 | `app/jobs` | Celery: the app, the beat schedule and the tasks <!-- copier:celery --> |
+| `app/payments` | subscriptions with Polar: the `PaymentProvider` protocol, checkout, portal, webhooks, the `pro` group <!-- copier:payments --> |
 | `app/analytics` | product analytics and feature flags with PostHog: the `Analytics` protocol and its dependency <!-- copier:posthog --> |
 | `app/ai` | AI features with Claude through LangChain: the chat model, prompts, schemas, Langfuse tracing <!-- copier:ai --> |
 | `app/migrations` | Alembic environment and revisions |
@@ -218,6 +219,7 @@ Every error has the same body, so clients can rely on a machine-readable code:
 | Unknown route, wrong method | 404, 405 | `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
 | Invalid request | 422 | `VALIDATION_ERROR`, with an `errors` list that never echoes the input |
 | Rate limit exceeded | 429 | `TOO_MANY_REQUESTS`, with a `Retry-After` header |
+| A webhook with a bad signature, or unreadable | 403 / 400 | `INVALID_WEBHOOK_SIGNATURE` / `INVALID_WEBHOOK_PAYLOAD` <!-- copier:payments --> |
 | The AI model declines, answers out of the schema, or cannot answer | 422 / 502 / 503 | `AI_REFUSAL` / `AI_INVALID_RESPONSE` / `AI_UNAVAILABLE` <!-- copier:ai --> |
 | Unique / foreign key / not null violation | 409 / 422 | `CONFLICT` / `UNPROCESSABLE`, without database details |
 | Anything unexpected | 500 | `SERVER_ERROR`, with the `requestId` (the traceback goes to the logs) |
@@ -264,6 +266,37 @@ A request line in production:
   `structlog.get_logger(__name__).info("todo_created", todo_id=str(todo.id))`;
   the request id and the user id are added automatically.
 
+<!-- copier:payments:start -->
+## Subscriptions
+
+Polar sells the subscriptions; its webhooks keep a copy of them in the
+`subscription` table, the source of truth for access
+([ADR 0018](adr/0018-subscriptions-with-polar.md)).
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend
+    participant A as API
+    participant P as Polar
+    participant DB as PostgreSQL
+    F->>A: POST /payments/checkout/
+    A->>P: create a checkout (customer = user id)
+    A-->>F: checkout URL
+    F->>P: the user pays
+    P->>A: POST /payments/webhook/ (signed)
+    A->>DB: event id, subscription snapshot, pro group
+    A-->>P: 202
+```
+
+- `PaymentProvider` keeps Polar behind a protocol: the services know
+  checkouts, portal sessions and verified events, not Polar's API.
+- A webhook is applied in one transaction: its id is recorded (a retry finds
+  it and stops), the snapshot is upserted only if newer than the saved one
+  (by Polar's modification time), and the `pro` group is recomputed from the
+  table. A webhook of a customer who is no user is acknowledged and logged.
+- The tables live in the `payments` migration branch (ADR 0014), so a project
+  without payments has none of them.
+<!-- copier:payments:end -->
 <!-- copier:posthog:start -->
 ## Product analytics
 

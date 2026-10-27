@@ -25,6 +25,7 @@ pytest_plugins: list[str] = [
     "tests.pytest_plugins.core",
     "tests.pytest_plugins.database",
     "tests.pytest_plugins.emails",
+    "tests.pytest_plugins.payments",  # copier:payments
     "tests.pytest_plugins.ratelimit",
     "tests.pytest_plugins.todos",
     "tests.pytest_plugins.users",

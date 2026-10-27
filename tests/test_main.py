@@ -14,10 +14,12 @@ async def test_lifespan(mocker: MockerFixture) -> None:
     """Test the resources are released on shutdown."""
     session_manager = mocker.patch("app.main.session_manager", mocker.AsyncMock())
     close_analytics = mocker.patch("app.main.close_analytics")  # copier:posthog
+    close_payments = mocker.patch("app.main.close_payments")  # copier:payments
     async with lifespan(FastAPI()):
         session_manager.aclose.assert_not_awaited()
     session_manager.aclose.assert_awaited_once()
     close_analytics.assert_awaited_once()  # copier:posthog
+    close_payments.assert_awaited_once()  # copier:payments
 
 
 def test_create_app_version() -> None:

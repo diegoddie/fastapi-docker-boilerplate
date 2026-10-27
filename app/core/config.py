@@ -123,6 +123,18 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CERTS_URL: str = "https://www.googleapis.com/oauth2/v3/certs"
 
+    # copier:payments:start
+    # Payments with Polar (disabled when the token or the webhook secret is not set)
+    POLAR_ACCESS_TOKEN: SecretStr | None = None
+    POLAR_WEBHOOK_SECRET: SecretStr | None = None
+    POLAR_ENVIRONMENT: Literal["sandbox", "production"] = "sandbox"
+    # Why: the products users may subscribe to, so a client cannot pick another.
+    POLAR_PRODUCT_IDS: list[str] = []
+    POLAR_TIMEOUT_SECONDS: float = Field(default=10, gt=0)
+    # Why: per user, since each checkout and portal session is created at Polar.
+    RATE_LIMIT_PAYMENTS_REQUESTS_PER_HOUR: int = Field(default=20, gt=0)
+
+    # copier:payments:end
     # copier:posthog:start
     # PostHog product analytics and feature flags (disabled when the key is not set)
     # Why: the project API key only lets clients send events, so it is not secret
