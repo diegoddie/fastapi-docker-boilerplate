@@ -227,7 +227,11 @@ def normalize_blank_lines(lines: list[str], cuts: set[int]) -> list[str]:
         after = 0
         while cut + after < len(lines) and not lines[cut + after].strip():
             after += 1
-        del lines[cut - min(before, after) : cut]
+        if cut == before:
+            # Why: a cut at the start of a file leaves no leading blank lines.
+            del lines[: cut + after]
+        else:
+            del lines[cut - min(before, after) : cut]
     return lines
 
 
@@ -264,7 +268,10 @@ def prune_text(text: str, modules: frozenset[str], where: str = "<text>") -> str
             cuts.add(len(kept))
     if open_blocks:
         raise MarkerError(f"{where}: {open_blocks[-1][0]!r} is never closed")
-    return "".join(normalize_blank_lines(kept, cuts))
+    pruned = "".join(normalize_blank_lines(kept, cuts))
+    # Why: the blank lines above a marker at the end of the file, removed with
+    # its block or alone, would end it.
+    return pruned.rstrip("\n") + "\n" if pruned != text and pruned.strip() else pruned
 
 
 def text_files(root: Path) -> Iterator[Path]:

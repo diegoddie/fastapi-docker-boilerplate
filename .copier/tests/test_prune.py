@@ -304,3 +304,26 @@ def test_orphan_errors(modules: frozenset[str]) -> None:
     ]
     single = "| Monitoring | Sentry <!-- copier:sentry --> |\nx = 1\n"
     assert prune.orphan_errors(single, "README.md", markdown=True) == []
+
+
+def test_block_at_the_edges(modules: frozenset[str]) -> None:
+    """Test a block at the start or the end of a file leaves no blank lines there."""
+    text = (
+        "# copier:sentry:start\n"
+        "import sentry_sdk\n"
+        "# copier:sentry:end\n"
+        "\n"
+        "x = 1\n"
+        "\n"
+        "\n"
+        "# copier:sentry:start\n"
+        "def test_sentry() -> None:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "# copier:sentry:end\n"
+    )
+    assert prune_text(text, frozenset({"template"})) == "x = 1\n"
+    assert prune_text(text, frozenset({"template", "sentry"})) == (
+        "import sentry_sdk\n\nx = 1\n\n\ndef test_sentry() -> None:\n    pass\n"
+    )
