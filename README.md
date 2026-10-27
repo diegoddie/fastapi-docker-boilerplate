@@ -29,6 +29,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 - **Health checks**: `/api/health/` for liveness and `/api/ready/` for readiness (database reachable)
 - **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, and included in `500` responses
 - **Error reporting with Sentry**: unexpected errors of the `remote` image go to Sentry once `SENTRY_DSN` is set, tagged with the request id, without personal data <!-- copier:sentry -->
+- **Product analytics with PostHog**: the services record the moments that matter (sign-ups, verified emails, new todos) with the user id only, never the text users write; routes can sit behind a feature flag, off whenever PostHog does not answer <!-- copier:posthog -->
 - **AI features with Claude**: LangChain on Claude Opus 5.5 with answers validated against a schema, an example route that suggests the subtasks of a todo, failures mapped to clear statuses, a per-user rate limit, token counts in the logs, and optional Langfuse tracing that keeps the text of prompts and answers out <!-- copier:ai -->
 - **Background jobs with Celery**: a worker and beat with Redis (Valkey) as the broker; each task opens its own database session and logs with its task id, and beat runs the daily purge <!-- copier:celery -->
 - **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
@@ -56,6 +57,7 @@ It distills the conventions I use on real-world FastAPI projects into a template
 | Monitoring | Sentry (production only) <!-- copier:sentry --> |
 | Background jobs | Celery, Redis (Valkey) <!-- copier:celery --> |
 | AI | LangChain, Claude (Anthropic), Langfuse <!-- copier:ai --> |
+| Product analytics | PostHog <!-- copier:posthog --> |
 
 ## Quickstart
 
@@ -183,6 +185,17 @@ List endpoints take their filters as query parameters, declared once in a `Filte
 | `order_by` | `?order_by=-priority,title` | sortable fields, `-` for descending; anything else is a `422` |
 | `page`, `size` | `?page=2&size=20` | pagination (size up to 100) |
 
+<!-- copier:posthog:start -->
+## Product analytics and feature flags
+
+With `FASTAPI_POSTHOG_API_KEY` set (the project API key, `phc_...`), the backend sends events to [PostHog](https://posthog.com); without it nothing is sent and every flag is off.
+
+- **Events** come from the services, after the commit, through `Analytics` (`app/analytics/`): `user_signed_up` (with `method`: `password` or `google`), `email_verified` and `todo_created` (with the priority and whether it has a due date, never the title). The service gets `analytics` from the route (`AnalyticsDep`), like the email sender; `capture` only queues the event, and a background task sends the queue in batches.
+- **Users** are identified by their id only: never an email or a name. In the frontend, call `posthog.identify(user.id)` after the login (the id comes from `GET /api/v1/users/user/me/`), so its events and the backend's belong to the same person.
+- **Feature flags**: put a route behind one with `dependencies=[Depends(require_feature_flag("new-export"))]`; users without the flag get `404`, as if the route did not exist. Every check asks PostHog (`FASTAPI_POSTHOG_FEATURE_FLAGS_TIMEOUT_SECONDS`, 1 s); when it does not answer, the flag is off.
+- No test sends anything to PostHog: the `fake_analytics` fixture records the events and turns on the flags a test lists.
+
+<!-- copier:posthog:end -->
 <!-- copier:ai:start -->
 ## AI features
 
@@ -321,6 +334,7 @@ app/
 ├── ratelimit/           # rate limits with counters in PostgreSQL
 ├── jobs/                # Celery app, beat schedule and tasks  # copier:celery
 ├── ai/                  # Claude through LangChain: chat model, prompts, Langfuse tracing  # copier:ai
+├── analytics/           # PostHog: events and feature flags  # copier:posthog
 ├── cli/                 # Typer management CLI: seed, shell
 └── migrations/          # Alembic environment and revisions
 tests/
@@ -416,6 +430,9 @@ Settings are read from environment variables prefixed with `FASTAPI_` (see `app/
 | `SENTRY_DSN` | — | Enables Sentry in the `remote` image <!-- copier:sentry --> |
 | `SENTRY_ENVIRONMENT` | — | Environment name shown in Sentry (e.g. `production`) <!-- copier:sentry --> |
 | `FASTAPI_SENTRY_TRACES_SAMPLE_RATE` | `0` | Share of requests traced for Sentry performance monitoring (`0` to `1`) <!-- copier:sentry --> |
+| `FASTAPI_POSTHOG_API_KEY` | — | PostHog project API key (`phc_...`): enables the events and the flags <!-- copier:posthog --> |
+| `FASTAPI_POSTHOG_HOST` | `https://eu.i.posthog.com` | PostHog region of the project (`https://us.i.posthog.com` for the US) <!-- copier:posthog --> |
+| `FASTAPI_POSTHOG_FEATURE_FLAGS_TIMEOUT_SECONDS` | `1` | How long a route behind a flag waits for PostHog before treating the flag as off <!-- copier:posthog --> |
 | `FASTAPI_ANTHROPIC_API_KEY` | — | Enables the AI features (use a workspace with a spend limit) <!-- copier:ai --> |
 | `FASTAPI_AI_MODEL` | `claude-opus-5-5` | Claude model of the AI features <!-- copier:ai --> |
 | `FASTAPI_AI_TIMEOUT_SECONDS` / `FASTAPI_AI_MAX_RETRIES` | `60` / `1` | Timeout of a call to the model, and retries on timeouts, rate limits and overloads <!-- copier:ai --> |
@@ -444,6 +461,7 @@ The `remote` image runs gunicorn with uvicorn workers as a non-root user and app
 - [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
 - [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
 - [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (see [Scheduled jobs](#scheduled-jobs)). <!-- copier:!celery -->
+- [ ] **PostHog** (if used): `FASTAPI_POSTHOG_API_KEY` and the `FASTAPI_POSTHOG_HOST` of the project's region; list the events in your privacy policy. <!-- copier:posthog -->
 - [ ] **AI** (if used): an Anthropic API key from a workspace with a spend limit, and a look at `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR`. LangChain and the Anthropic SDK add ~90 MiB to each worker and a few seconds to its start: size the memory for it. Turn on `FASTAPI_LANGFUSE_CAPTURE_CONTENT` only if the users' data may leave for Langfuse. <!-- copier:ai -->
 - [ ] **Background jobs**: from the backend image, run the workers (`celery --app app.jobs.worker worker`) and **exactly one** beat (`celery --app app.jobs.worker beat`: two would send every scheduled task twice), with `FASTAPI_CELERY_BROKER_URL` pointing to Redis. On stop, a worker finishes its running tasks: give it a grace period longer than the longest task. <!-- copier:celery -->
 - [ ] **Monitoring**: probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
@@ -471,6 +489,7 @@ Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the lat
 | `copyright_year` | 2026 (this year) | license |
 | `background_jobs` | cron | `cron`: `purge` is a command for your scheduler; `celery`: a Celery worker and beat with Redis |
 | `sentry` | yes | error reporting with Sentry in the `remote` image |
+| `posthog` | no | product analytics and feature flags with PostHog |
 | `ai` | no | AI features with Claude (LangChain, Langfuse tracing) and the subtask suggestion route |
 
 `--trust` lets Copier run `.copier/prune.py`, which writes the answers into the project and re-locks the dependencies with uv. The answers are saved in `.copier-answers.yml`: commit it, and later bring in the template's improvements with:
@@ -494,6 +513,7 @@ Copier merges the changes with yours; review them with `git diff` (and any `.rej
 - [x] Email verification and password reset
 - [x] Copier template, with Sentry and Celery as options, migrations in branches
 - [x] AI features with Claude as an option: LangChain, Langfuse tracing
+- [x] Product analytics and feature flags with PostHog as an option
 - [ ] Payments (Polar) as an option, and the `v2.0.0` release
 <!-- copier:template:end -->
 

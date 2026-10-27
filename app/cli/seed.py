@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.analytics.services import DisabledAnalytics  # copier:posthog
 from app.auth.security import password_hasher
 from app.cli.constants import SEED_TODOS, SEED_USERS
 from app.cli.utils import echo_validation_errors, require_local_environment
@@ -56,6 +57,7 @@ async def execute_seed(password: str, session: AsyncSession) -> list[User]:
                 ),
                 session,
                 user,
+                DisabledAnalytics(),  # copier:posthog
             )
         created.append(user)
     return created

@@ -32,6 +32,7 @@ docker compose run --rm backend just test               # same, inside Docker
 - `app/emails/`: `EmailSender`, `EmailSenderDep` (sends after the response; console locally, SMTP remotely)
 - `app/auth/`: login, tokens, Google sign-in, `AuthenticatedUser`, `require_any_permissions`
 - `app/cli/`: the Typer root (`main.py`), cross-domain commands (`seed`, `shell`), helpers (`utils.py`)
+- `app/analytics/`: `Analytics` (PostHog, disabled, fake), `AnalyticsDep`, `require_feature_flag`, the event names (`constants.py`) <!-- copier:posthog -->
 - `app/ai/`: the chat model (`dependencies.py`), `generate` and the AI features (`services.py`), prompts, answer schemas, Langfuse tracing <!-- copier:ai -->
 - `app/jobs/`: the Celery app and the beat schedule (`worker.py`), the tasks (`tasks.py`) <!-- copier:celery -->
 - `app/<domain>/`: `constants.py`, `enums.py`, `models.py`, `schemas.py`, `services.py`, `router.py` (+ `commands/`)
@@ -87,6 +88,14 @@ docker compose run --rm backend just test               # same, inside Docker
   that calls `run_with_session` (`app/core/database.py`) and prints with
   `typer.secho`. Local-only commands call `require_local_environment()`.
   Register them in `app/cli/main.py`.
+<!-- copier:posthog:start -->
+- **Analytics**: a service that records an event takes `analytics: Analytics`
+  (the route injects `AnalyticsDep`) and calls `analytics.capture(EVENT,
+  user.id, {...})` after the commit; event names live in
+  `app/analytics/constants.py`. Properties never hold personal data or text
+  users wrote. A route behind a flag adds
+  `Depends(require_feature_flag("<flag>"))`.
+<!-- copier:posthog:end -->
 <!-- copier:ai:start -->
 - **AI features**: a service method takes `ChatModelDep` and
   `TracingCallbacksDep` from the route, commits its reads, then calls
@@ -142,6 +151,8 @@ docker compose run --rm backend just test               # same, inside Docker
 - No test sends emails (the console backend is forced); read the emails a test
   triggers with the `email_outbox` fixture, and the token of their link with
   `email_token(message)` from `tests/utils.py`.
+- Tests of events and flags use the `fake_analytics` fixture (`events`,
+  `enabled_flags`); no test sends anything to PostHog. <!-- copier:posthog -->
 - Tests of AI features use the `fake_chat_model` fixture: `answer(...)` and
   `fail(...)` prepare what the model does; no test calls Anthropic or Langfuse. <!-- copier:ai -->
 - Assert logs with the `log_events` fixture: `log_events("http_request")` returns
@@ -164,6 +175,10 @@ leave out.
   `template` marks what only the template needs.
 - Module code is an addition, never an alternative: an import, an item of a
   multi-line list (with a trailing comma), a settings block, a router include.
+- A line marker only goes on a statement that fits on one line: the formatter
+  may split a longer one, leaving the marker on its last line alone. Use a
+  block instead; `prune.py check` compiles every Python file with each module
+  off and reports what would break.
 - A new module needs its question in `copier.yml`, its paths in `_exclude`,
   its name in `MODULES` (`.copier/prune.py`), answer sets in
   `.copier/answers/`, and an ADR.

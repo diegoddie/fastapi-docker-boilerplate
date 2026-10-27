@@ -38,6 +38,7 @@ flowchart LR
 | `app/todos` | the example domain: the reference to copy for new features |
 | `app/cli` | Typer management CLI and the cross-domain commands (`seed`, `shell`) |
 | `app/jobs` | Celery: the app, the beat schedule and the tasks <!-- copier:celery --> |
+| `app/analytics` | product analytics and feature flags with PostHog: the `Analytics` protocol and its dependency <!-- copier:posthog --> |
 | `app/ai` | AI features with Claude through LangChain: the chat model, prompts, schemas, Langfuse tracing <!-- copier:ai --> |
 | `app/migrations` | Alembic environment and revisions |
 
@@ -263,6 +264,25 @@ A request line in production:
   `structlog.get_logger(__name__).info("todo_created", todo_id=str(todo.id))`;
   the request id and the user id are added automatically.
 
+<!-- copier:posthog:start -->
+## Product analytics
+
+The services record the moments that matter to the product through
+`Analytics` ([ADR 0017](adr/0017-product-analytics-with-posthog.md)), which
+the route passes in like the email sender: `PostHogAnalytics` with a key,
+`DisabledAnalytics` without one, `FakeAnalytics` in the tests.
+
+- An event is captured after the commit, with the user id as PostHog's
+  distinct id and only properties that hold no personal data. `capture` puts
+  it in a queue that a background task of the async client sends in batches;
+  the queue is flushed at shutdown.
+- `require_feature_flag(flag)` asks PostHog for the flag of the current user
+  on every request and answers `404` when it is off; a timeout or an error
+  turns the flag off.
+- The client is bound to the event loop of the worker that creates it, so the
+  analytics belong to the API; a Celery task, which runs in a loop of its own,
+  would need a client per run.
+<!-- copier:posthog:end -->
 <!-- copier:ai:start -->
 ## AI
 

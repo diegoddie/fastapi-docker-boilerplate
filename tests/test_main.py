@@ -11,11 +11,13 @@ from app.main import create_app, lifespan
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_lifespan(mocker: MockerFixture) -> None:
-    """Test the database engine is disposed on shutdown."""
+    """Test the resources are released on shutdown."""
     session_manager = mocker.patch("app.main.session_manager", mocker.AsyncMock())
+    close_analytics = mocker.patch("app.main.close_analytics")  # copier:posthog
     async with lifespan(FastAPI()):
         session_manager.aclose.assert_not_awaited()
     session_manager.aclose.assert_awaited_once()
+    close_analytics.assert_awaited_once()  # copier:posthog
 
 
 def test_create_app_version() -> None:

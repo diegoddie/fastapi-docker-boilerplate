@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from fastapi_pagination import Page
 
+from app.analytics.dependencies import AnalyticsDep  # copier:posthog
 from app.auth.dependencies import AuthenticatedUser, require_any_permissions
 from app.commons.exports import csv_response
 from app.commons.pagination import paginate
@@ -37,10 +38,18 @@ router = APIRouter()
     dependencies=[Depends(require_any_permissions([CAN_CREATE_TODO]))],
 )
 async def create_todo_route(
-    payload: TodoPublicSchemaCreate, session: AsyncDBSession, user: AuthenticatedUser
+    payload: TodoPublicSchemaCreate,
+    session: AsyncDBSession,
+    user: AuthenticatedUser,
+    analytics: AnalyticsDep,  # copier:posthog
 ) -> Any:
     """Create todo route."""
-    return await TodoService.create(payload, session, user)
+    return await TodoService.create(
+        payload,
+        session,
+        user,
+        analytics,  # copier:posthog
+    )
 
 
 @router.get(

@@ -1,0 +1,1 @@
+"""The analytics package tests."""

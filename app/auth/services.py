@@ -11,6 +11,8 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlmodel import col, delete, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.analytics.constants import EMAIL_VERIFIED, USER_SIGNED_UP  # copier:posthog
+from app.analytics.services import Analytics  # copier:posthog
 from app.auth.emails import email_verification_message, password_reset_message
 from app.auth.enums import TokenPurpose
 from app.auth.identity import (
@@ -68,7 +70,10 @@ class AuthService:
 
     @staticmethod
     async def authenticate_external(
-        token: str, provider: IdentityProvider, session: AsyncSession
+        token: str,
+        provider: IdentityProvider,
+        session: AsyncSession,
+        analytics: Analytics,  # copier:posthog
     ) -> User:
         """
         Return the user of an external account, creating it on the first sign-in.
@@ -80,6 +85,9 @@ class AuthService:
         identity = await AuthService._get_external_identity(claims, session)
         if identity is None:
             user = await AuthService._create_external_user(claims, session)
+            # copier:posthog:start
+            analytics.capture(USER_SIGNED_UP, user.id, {"method": claims.provider})
+            # copier:posthog:end
         else:
             user = identity.user
         if not user.is_active:
@@ -144,7 +152,11 @@ class AuthService:
         await sender.send(email_verification_message(user, token))
 
     @staticmethod
-    async def verify_email(token: str, session: AsyncSession) -> None:
+    async def verify_email(
+        token: str,
+        session: AsyncSession,
+        analytics: Analytics,  # copier:posthog
+    ) -> None:
         """Mark the address of the token's user as verified."""
         user = await AuthService._consume_one_time_token(
             token, TokenPurpose.VERIFY_EMAIL, session
@@ -152,6 +164,7 @@ class AuthService:
         user.datetime_email_verified = datetime.now(UTC)
         session.add(user)
         await session.commit()
+        analytics.capture(EMAIL_VERIFIED, user.id)  # copier:posthog
 
     @staticmethod
     async def request_password_reset(

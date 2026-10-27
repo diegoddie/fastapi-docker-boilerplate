@@ -29,6 +29,8 @@ services:
       - FASTAPI_LANGFUSE_SECRET_KEY  # copier:ai
       - FASTAPI_LOG_FORMAT
       - FASTAPI_LOG_LEVEL
+      - FASTAPI_POSTHOG_API_KEY  # copier:posthog
+      - FASTAPI_POSTHOG_HOST  # copier:posthog
       - FASTAPI_SECRET_KEY
       - FASTAPI_SENTRY_TRACES_SAMPLE_RATE  # copier:sentry
       - FASTAPI_SMTP_HOST

@@ -33,6 +33,13 @@ _exclude:
     docs/adr/0016-ai-features-with-langchain-and-claude.md
     {%- endif %}
   - |-
+    {%- if not posthog %}
+    app/analytics
+    tests/analytics
+    tests/pytest_plugins/analytics.py
+    docs/adr/0017-product-analytics-with-posthog.md
+    {%- endif %}
+  - |-
     {%- if background_jobs != 'celery' %}
     app/jobs
     tests/jobs
@@ -125,6 +132,12 @@ sentry:
   type: bool
   help: Report unexpected errors to Sentry from the remote image (enabled by SENTRY_DSN)
   default: true
+posthog:
+  type: bool
+  help: >-
+    Product analytics and feature flags with PostHog: events recorded by the
+    services, routes behind a flag (enabled by a PostHog project key)
+  default: false
 ai:
   type: bool
   help: >-
