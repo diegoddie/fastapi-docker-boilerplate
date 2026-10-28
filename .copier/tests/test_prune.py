@@ -331,3 +331,14 @@ def test_block_at_the_edges(modules: frozenset[str]) -> None:
     assert prune_text(text, frozenset({"template", "sentry"})) == (
         "import sentry_sdk\n\nx = 1\n\n\ndef test_sentry() -> None:\n    pass\n"
     )
+
+
+def test_leftovers_option_rows(tmp_path: Path) -> None:
+    """Test the table of the options may name the modules a project lacks."""
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v2.0.0\n_src_path: gh:x/y\nsentry: false\n"
+    )
+    (tmp_path / "README.md").write_text(
+        "| `sentry` | `true` | error reporting with Sentry |\n| `sentries` | Sentry |\n"
+    )
+    assert leftovers(tmp_path) == ["README.md:2: 'sentry' of a module turned off"]

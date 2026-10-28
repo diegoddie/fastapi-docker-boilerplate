@@ -16,6 +16,7 @@ _exclude:
   - .svn
   - .copier
   - .github/workflows/template.yml
+  - CHANGELOG.md
   - docs/adr/0013-the-template-prunes-a-working-app.md
   - .env
   - .venv
@@ -27,6 +28,7 @@ _exclude:
   - .claude/settings.local.json
   - |-
     {%- if not ai %}
+    docs/ai.md
     app/ai
     tests/ai
     tests/pytest_plugins/ai.py
@@ -34,6 +36,7 @@ _exclude:
     {%- endif %}
   - |-
     {%- if payments != 'polar' %}
+    docs/payments.md
     app/payments
     app/migrations/versions/payments
     tests/payments
@@ -43,6 +46,7 @@ _exclude:
     {%- endif %}
   - |-
     {%- if not posthog %}
+    docs/analytics.md
     app/analytics
     tests/analytics
     tests/pytest_plugins/analytics.py
@@ -50,10 +54,13 @@ _exclude:
     {%- endif %}
   - |-
     {%- if background_jobs != 'celery' %}
+    docs/background-jobs.md
     app/jobs
     tests/jobs
     scripts/check_worker.sh
     docs/adr/0015-background-jobs-with-celery.md
+    {%- else %}
+    docs/scheduled-jobs.md
     {%- endif %}
   - |-
     {%- if not sentry %}

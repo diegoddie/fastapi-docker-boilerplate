@@ -7,12 +7,12 @@ import matrix
 import pytest
 from matrix import (
     ANSWERS_DIR,
-    OPTIONS,
     answer_sets,
     every_combination,
     pairwise,
     uncovered_pairs,
 )
+from prune import OPTIONS
 
 IDENTITY = {
     "project_name",
