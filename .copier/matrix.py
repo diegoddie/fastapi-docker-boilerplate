@@ -20,16 +20,9 @@ import sys
 from pathlib import Path
 
 from check_render import read_answers
+from prune import OPTIONS
 
 ANSWERS_DIR = Path(__file__).resolve().parent / "answers"
-# The options of copier.yml, with their values (the identity questions apart).
-OPTIONS: dict[str, tuple[object, ...]] = {
-    "ai": (False, True),
-    "background_jobs": ("cron", "celery"),
-    "payments": ("none", "polar"),
-    "posthog": (False, True),
-    "sentry": (False, True),
-}
 # The answer set whose identity the combinations of the weekly run share.
 BASE = "acme"
 CACHE_FROM = "*.cache-from=type=gha,scope=template-{name}"

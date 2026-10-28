@@ -17,28 +17,21 @@ It distills the conventions I use on real-world FastAPI projects into a template
 
 ## Features
 
-- **Async all the way**: FastAPI + SQLModel/SQLAlchemy 2 async sessions on PostgreSQL (psycopg 3)
-- **Authentication**: open registration with **email verification**, email + password login (argon2, hashed off the event loop), **password reset** by email, **Sign in with Google** with accounts linked explicitly (never by email), short-lived JWT access tokens and **rotating refresh tokens stored in the database** (hashed), with reuse detection that tolerates concurrent refreshes, real logout and a purge command; **rate limits** on login, registration and Google sign-in, shared by every worker; the Swagger UI "Authorize" button works out of the box
-- **Permissions**: users belong to groups, groups grant permissions, and routes declare the permission they need (`require_any_permissions`)
-- **Users API**: profile (`me`), and paginated user management for administrators
-- **Example domain (`todos`)**: the reference to copy for new features, with CRUD, permissions per action, per-owner visibility, filters, search, ordering, pagination, soft delete and a streamed CSV export safe from formula injection
-- **Typed configuration** with pydantic-settings, all variables prefixed with `FASTAPI_`
-- **Consistent errors**: every error (including 404, 405, validation errors and unexpected 500s) has the same shape with a machine-readable `errorCode`; database integrity errors become `409` / `422` responses automatically, without leaking database details
-- **UTC-only datetimes**: a custom column type rejects naive datetimes at the database boundary
-- **Alembic migrations** with a constraint naming convention and date-prefixed revisions, applied automatically when the container starts and safe with several replicas (advisory lock)
-- **Health checks**: `/api/health/` for liveness and `/api/ready/` for readiness (database reachable)
-- **Structured logs with a request id**: JSON lines in production (colored ones locally) from the app, uvicorn, gunicorn and Alembic alike; every request gets an id, returned in `X-Request-ID`, written on each of its lines with the user id, and included in `500` responses
-- **Error reporting with Sentry**: unexpected errors of the `remote` image go to Sentry once `SENTRY_DSN` is set, tagged with the request id, without personal data <!-- copier:sentry -->
-- **Subscriptions with Polar**: checkout, customer portal and signed webhooks, applied once and in the right order whatever the order of arrival; an active subscription puts the user in the `pro` group, whose permissions are the paid features <!-- copier:payments -->
-- **Product analytics with PostHog**: the services record the moments that matter (sign-ups, verified emails, new todos) with the user id only, never the text users write; routes can sit behind a feature flag, off whenever PostHog does not answer <!-- copier:posthog -->
-- **AI features with Claude**: LangChain on Claude Opus 5.5 with answers validated against a schema, an example route that suggests the subtasks of a todo, failures mapped to clear statuses, a per-user rate limit, token counts in the logs, and optional Langfuse tracing that keeps the text of prompts and answers out <!-- copier:ai -->
-- **Background jobs with Celery**: a worker and beat with Redis (Valkey) as the broker; each task opens its own database session and logs with its task id, and beat runs the daily purge <!-- copier:celery -->
-- **One Docker image, three targets**: `remote` (gunicorn + uvicorn workers, non-root), `test` (CI) and `local` (hot reload)
-- **Quality gates**: ruff with an extended rule set, mypy in strict mode, bandit, and **100% branch coverage** enforced
-- **Realistic tests**: a real PostgreSQL database where every test is rolled back, factories, named personas, full-response snapshots, and a guard test that fails if a route is left without authentication
-- **CI on GitHub Actions** running the very same test image (with cached Docker layers), a vulnerability scan of every locked dependency (`pip-audit`), Dependabot for updates
-- **Documented decisions**: an architecture overview with diagrams, architecture decision records, and a `CLAUDE.md` plus a `new-domain-app` skill so that code generated with Claude Code follows the same conventions
-- **Developer experience**: `uv` for dependencies, `just` for every task, pre-commit hooks pinned to `uv.lock`, a Typer management CLI with demo data (`seed`) and an async IPython `shell`
+- **Async all the way**: FastAPI and SQLModel on PostgreSQL (SQLAlchemy 2 async, psycopg 3), migrations with Alembic
+- **Authentication**: registration with email verification, password login and reset, Sign in with Google (accounts linked explicitly, never by email), short-lived JWTs and rotating refresh tokens stored hashed, with reuse detection
+- **Hardened**: rate limits shared by every worker, password hashing off the event loop and capped in memory, a database connection never held while waiting on a slow call
+- **Permissions**: users belong to groups, groups grant permissions, routes declare the one they need; resources of others answer `404`
+- **Example domain (`todos`)**: CRUD, ownership, filters, search, ordering, pagination, soft delete and a streamed CSV export: the reference to copy
+- **Consistent errors**: one shape with a machine-readable `errorCode` for every error, database integrity errors included
+- **Structured logs**: JSON in production, a request id on every line and in `500` responses
+- **Subscriptions with Polar**: checkout, customer portal and signed webhooks applied once and in order; an active subscription grants the `pro` group <!-- copier:payments -->
+- **Product analytics with PostHog**: events from the services with the user id only, routes behind feature flags <!-- copier:posthog -->
+- **AI features with Claude**: LangChain, answers validated against a schema, clear errors, a per-user limit, token counts in the logs, Langfuse tracing without the text <!-- copier:ai -->
+- **Background jobs with Celery**: a worker and beat on Redis, a database session per task <!-- copier:celery -->
+- **Error reporting with Sentry**, tagged with the request id, without personal data <!-- copier:sentry -->
+- **Quality gates**: ruff, mypy strict, bandit, **100% branch coverage**, warnings as errors, tests in parallel on a real PostgreSQL rolled back after each test
+- **One Docker image, three targets** (`remote`, `test`, `local`), CI on GitHub Actions with the same image, `pip-audit` and Dependabot
+- **Documented**: architecture with diagrams, decision records, and a `CLAUDE.md` plus a skill so that Claude Code follows the conventions
 
 ## Tech stack
 
@@ -85,7 +78,7 @@ docker compose up --build
 
 The `.env` file selects the `local` image target and mounts the source code, so the server reloads on every change. The API docs are served only in the `local` environment unless `FASTAPI_DOCS_ENABLED` says otherwise.
 
-Compose also starts the Celery worker (restarted on every change too), beat and Redis: see [Background jobs](#background-jobs). <!-- copier:celery -->
+Compose also starts the Celery worker (restarted on every change too), beat and Redis: see [Background jobs](docs/background-jobs.md). <!-- copier:celery -->
 
 Create the first administrator, then log in from the docs with the **Authorize** button (the username is the email):
 
@@ -99,194 +92,49 @@ Or fill the database with demo users (Alice admin, Bob member, Carol viewer, wit
 docker compose run --rm backend just manage seed
 ```
 
-## API overview
+<!-- copier:template:start -->
+## Generate a project
 
-| Method | Path | Access | Description |
-|---|---|---|---|
-| `POST` | `/api/v1/auth/register/` | public | Register a new user (group `member`) |
-| `POST` | `/api/v1/auth/login/` | public | Log in (OAuth2 password form) and get a token pair |
-| `POST` | `/api/v1/auth/refresh/` | public | Exchange a refresh token for a new pair (rotation) |
-| `POST` | `/api/v1/auth/logout/` | public | Revoke the session of a refresh token |
-| `POST` | `/api/v1/auth/google/` | public | Sign in with a Google ID token and get a token pair |
-| `POST` | `/api/v1/auth/google/link/` | authenticated | Link a Google account to your user (password and verified email required) |
-| `POST` | `/api/v1/auth/email/verification/` | authenticated | Email a new link to verify your address |
-| `POST` | `/api/v1/auth/email/verify/` | public | Verify an address with the token of the link |
-| `POST` | `/api/v1/auth/password/forgot/` | public | Email a link to choose a new password (always `202`) |
-| `POST` | `/api/v1/auth/password/reset/` | public | Choose a new password with the token of the link; ends every session |
-| `GET` / `PATCH` | `/api/v1/users/user/me/` | authenticated | Read or update your own profile |
-| `GET` | `/api/v1/users/user/` | `can_view_user` | List users (paginated) |
-| `GET` | `/api/v1/users/user/{id}/` | `can_view_user` | User detail |
-| `PATCH` | `/api/v1/users/user/{id}/` | `can_edit_user` | Change names, groups, or (re)activate a user |
-| `DELETE` | `/api/v1/users/user/{id}/` | `can_disable_user` | Disable a user and end all their sessions |
-| `POST` | `/api/v1/todos/todo/` | `can_create_todo` | Create a todo (owned by you) |
-| `GET` | `/api/v1/todos/todo/` | `can_view_todo` | List todos (paginated, with filters) |
-| `GET` | `/api/v1/todos/todo/download/` | `can_view_todo` | Download the filtered todos as CSV |
-| `GET` | `/api/v1/todos/todo/{id}/` | `can_view_todo` | Todo detail |
-| `PATCH` | `/api/v1/todos/todo/{id}/` | `can_edit_todo` | Update a todo |
-| `DELETE` | `/api/v1/todos/todo/{id}/` | `can_delete_todo` | Delete a todo (soft delete) |
-| `POST` | `/api/v1/payments/checkout/` | authenticated | Start a Polar checkout for a product; returns the URL to send the user to <!-- copier:payments --> |
-| `POST` | `/api/v1/payments/portal-session/` | authenticated | Open the Polar customer portal (invoices, payment method, cancellation) <!-- copier:payments --> |
-| `GET` | `/api/v1/payments/subscription/` | authenticated | List your subscriptions <!-- copier:payments --> |
-| `POST` | `/api/v1/payments/webhook/` | Polar (signed) | Receive Polar's webhooks <!-- copier:payments --> |
-| `POST` | `/api/v1/todos/todo/{id}/subtask-suggestions/` | `can_suggest_todo_subtasks` | Ask Claude to split a todo into subtasks, ready to create <!-- copier:ai --> |
-| `GET` / `HEAD` | `/api/health/`, `/api/ready/` | public | Liveness and readiness checks |
-
-## Sign in with Google
-
-The frontend shows Google's "Sign in with Google" button, receives an **ID token** from Google and sends it to `POST /api/v1/auth/google/` as `{"id_token": "..."}`. The backend verifies the token (Google's signature, issuer, audience, expiry) and answers with the same token pair as the password login:
-
-- the first sign-in creates a `member` without a password, if Google verified the email; the address counts as verified when Google is authoritative for it (Gmail, or the domain of a Workspace account);
-- if an account with the same email already exists, the sign-in answers `409` with `errorCode: ACCOUNT_EXISTS` and links nothing, because the email does not prove that the person owns that account (someone may have registered the address first, or the address may have changed hands). The user signs in with the password, and the frontend links the Google account with `POST /api/v1/auth/google/link/`, sending `{"id_token": "...", "password": "..."}`. The exception is an account whose address nobody ever verified: when Google is authoritative for the address, the person signing in owns it and takes the account over (its password, sessions and other linked accounts are removed);
-- the next sign-ins find the user through the Google account id, even if the email changes.
-
-To enable it:
-
-1. In the [Google Cloud Console](https://console.cloud.google.com/), create a project and configure the consent screen (*Google Auth Platform*); while the app is in testing, add your account as a test user.
-2. Create an OAuth client of type **Web application**, with `http://localhost:8000` and `http://localhost` as authorized JavaScript origins (no redirect URI is needed).
-3. Set `FASTAPI_GOOGLE_CLIENT_ID` in `.env` and restart the backend. The client secret is not needed.
-4. Open http://localhost:8000/api/v1/auth/google/test-page/: a local page (served only when the docs are) with the Google button, which shows the tokens returned by the backend.
-
-Without a client id, Google sign-in answers `404` with `errorCode: GOOGLE_SIGN_IN_DISABLED`.
-
-## Email verification and password reset
-
-Registration sends a link to verify the address; "forgot password" sends a link to choose a new one. The links open two pages of your frontend, which send the token to the API:
-
-| Page | Link | The page calls |
-|---|---|---|
-| Verify the email | `{FRONTEND_URL}/verify-email#token=...` | `POST /api/v1/auth/email/verify/` with `{"token": "..."}` |
-| Reset the password | `{FRONTEND_URL}/reset-password#token=...` | `POST /api/v1/auth/password/reset/` with `{"token": "...", "password": "..."}` |
-
-- The token is in the fragment (`#`), which browsers never send to servers. It works once and expires (24 hours to verify, 30 minutes to reset); a new link replaces the previous one.
-- "Forgot password" answers `202` whether the email exists or not, so it does not reveal who is registered. A reset ends every session of the user.
-- Unverified users can log in; `isEmailVerified` in `GET /api/v1/users/user/me/` tells the frontend to show a reminder, and `POST /api/v1/auth/email/verification/` sends a new link.
-- Whoever proves an address first wins: a reset on an account nobody verified also removes the external accounts linked to it, so a person who registered someone else's address keeps no way in.
-- Emails are sent after the response. Locally they are written to the logs (open the link from the terminal); remotely they go through SMTP (`FASTAPI_SMTP_*`), any provider works.
-
-## Groups and permissions
-
-Users belong to groups; each group grants a set of permissions (`GROUPS` in `app/users/constants.py`); each route declares the permission it needs.
-
-| Group | Permissions |
-|---|---|
-| `admin` | every permission, including `can_manage_all_todos`: sees and changes everyone's todos |
-| `member` (default on registration) | create, view, edit and delete **their own** todos |
-| `viewer` | view their own todos (read-only) |
-| `pro` | the paid features (`can_use_pro_features`), while a subscription is active; set by the payments, never by hand <!-- copier:payments --> |
-
-A todo owned by someone else answers `404`, not `403`: the API never reveals that it exists.
-
-Members and administrators can also ask for the subtasks of their todos (`can_suggest_todo_subtasks`). <!-- copier:ai -->
-
-## Lists: filters, search, ordering
-
-List endpoints take their filters as query parameters, declared once in a `FilterBase` subclass (see `TodoFilter` in `app/todos/schemas.py`) and reused by the CSV export:
-
-| Parameter | Example | Meaning |
-|---|---|---|
-| `<field>` | `?status=done` | equal to |
-| `<field>__in` | `?priority__in=high&priority__in=low` | one of |
-| `<field>__gte` / `<field>__lte` | `?due_date__lte=2026-12-31` | greater / less than or equal to |
-| `<field>__is_null` | `?due_date__is_null=true` | missing (or present, with `false`) |
-| `search` | `?search=report` | case-insensitive match on the search fields (`%` and `_` match literally) |
-| `order_by` | `?order_by=-priority,title` | sortable fields, `-` for descending; anything else is a `422` |
-| `page`, `size` | `?page=2&size=20` | pagination (size up to 100) |
-
-<!-- copier:payments:start -->
-## Subscriptions
-
-With `FASTAPI_POLAR_ACCESS_TOKEN` and `FASTAPI_POLAR_WEBHOOK_SECRET` set, users subscribe through [Polar](https://polar.sh), which handles the payment, the invoices and the taxes as merchant of record. Without them, the payment routes answer `404` (`PAYMENTS_DISABLED`).
-
-1. The frontend calls `POST /api/v1/payments/checkout/` with a product id listed in `FASTAPI_POLAR_PRODUCT_IDS`, and sends the user to the returned URL. The user must have verified their email; the Polar customer is created with the user id as its external id.
-2. Polar calls `POST /api/v1/payments/webhook/` at every change of the subscription. The signature is verified, an event that arrives twice is applied once, and an event older than the saved state is ignored, so the order of arrival does not matter.
-3. The `subscription` table is the source of truth: while a subscription is active (or on trial, or a failed payment is being retried), the user is in the `pro` group, and gets its permissions. A subscription canceled at the end of the period keeps access until then.
-4. `POST /api/v1/payments/portal-session/` opens the Polar customer portal, where the user changes the payment method, downloads the invoices or cancels.
-
-Put a paid feature behind `require_any_permissions([CAN_USE_PRO_FEATURES])`, or add your own permissions to `GROUPS[Group.PRO]` (`app/users/constants.py`).
-
-To try it: create an organization on the [Polar sandbox](https://sandbox.polar.sh) with a recurring product, an access token with the `checkouts:write` and `customer_sessions:write` scopes, and a webhook pointing to `/api/v1/payments/webhook/` for the `subscription.*` events (locally, through a tunnel); its secret goes in `FASTAPI_POLAR_WEBHOOK_SECRET`. Tests never call Polar: they sign webhooks the way Polar does.
-
-<!-- copier:payments:end -->
-<!-- copier:posthog:start -->
-## Product analytics and feature flags
-
-With `FASTAPI_POSTHOG_API_KEY` set (the project API key, `phc_...`), the backend sends events to [PostHog](https://posthog.com); without it nothing is sent and every flag is off.
-
-- **Events** come from the services, after the commit, through `Analytics` (`app/analytics/`): `user_signed_up` (with `method`: `password` or `google`), `email_verified` and `todo_created` (with the priority and whether it has a due date, never the title). The service gets `analytics` from the route (`AnalyticsDep`), like the email sender; `capture` only queues the event, and a background task sends the queue in batches.
-- **Users** are identified by their id only: never an email or a name. In the frontend, call `posthog.identify(user.id)` after the login (the id comes from `GET /api/v1/users/user/me/`), so its events and the backend's belong to the same person.
-- **Feature flags**: put a route behind one with `dependencies=[Depends(require_feature_flag("new-export"))]`; users without the flag get `404`, as if the route did not exist. Every check asks PostHog (`FASTAPI_POSTHOG_FEATURE_FLAGS_TIMEOUT_SECONDS`, 1 s); when it does not answer, the flag is off.
-- No test sends anything to PostHog: the `fake_analytics` fixture records the events and turns on the flags a test lists.
-
-<!-- copier:posthog:end -->
-<!-- copier:ai:start -->
-## AI features
-
-With `FASTAPI_ANTHROPIC_API_KEY` set, `POST /api/v1/todos/todo/{id}/subtask-suggestions/` asks Claude to split a todo into 2 to 8 subtasks, each ready to be sent to `POST /api/v1/todos/todo/`. Without the key, the AI routes answer `404` (`AI_DISABLED`).
-
-- The chat model is LangChain's `ChatAnthropic`, built once in `app/ai/dependencies.py`: Claude Opus 5.5 (`FASTAPI_AI_MODEL`), adaptive thinking at medium effort, and a server-side fallback to another model when a safety classifier declines the request.
-- A feature is a service method that calls `generate(chat_model, messages, Schema, ...)` (`app/ai/services.py`): the answer comes back as JSON in a Pydantic schema, validated. The model declining answers `422` (`AI_REFUSAL`), an answer that does not fit the schema `502` (`AI_INVALID_RESPONSE`), timeouts, rate limits and overloads `503` (`AI_UNAVAILABLE`), after `FASTAPI_AI_MAX_RETRIES` retries.
-- The request gives its database connection back before calling the model, and each user may send `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR` requests (20), since every call costs tokens.
-- Every call logs `ai_completion` with the model, the stop reason, the tokens and the duration, never the text.
-- With `FASTAPI_LANGFUSE_PUBLIC_KEY` and `FASTAPI_LANGFUSE_SECRET_KEY`, every call is traced in [Langfuse](https://langfuse.com) with the user id, the request id and the tokens; prompts and answers stay out of the traces unless `FASTAPI_LANGFUSE_CAPTURE_CONTENT=true`.
-- No test calls Anthropic or Langfuse: the `fake_chat_model` fixture answers what the test prepares.
-
-<!-- copier:ai:end -->
-<!-- copier:celery:start -->
-## Background jobs
-
-Background jobs run on [Celery](https://docs.celeryq.dev/): beat sends the scheduled tasks to Redis (the Valkey image), and the worker runs them. `docker compose up` starts all three.
-
-- `app/jobs/worker.py` holds the Celery app and the schedule: `purge` (expired tokens and rate limit counters) runs every day at 03:00 UTC.
-- `app/jobs/tasks.py` holds the tasks. A task is a plain function that opens its own database session with `run_with_session`; send one from an endpoint with `task.delay(...)`, after the commit of what it reads.
-- A task is acknowledged when it finishes, so one interrupted by a worker that dies runs again: write tasks that do no harm when they run twice.
-- Every log line of a task carries its `task_id` and `task_name`.
-- A worker runs `FASTAPI_CELERY_WORKER_CONCURRENCY` processes (2, ~75 MiB each): Celery would otherwise start one per CPU of the host.
-
-Run a task by hand with `docker compose run --rm backend celery --app app.jobs.worker call app.jobs.tasks.purge`.
-
-<!-- copier:celery:end -->
-<!-- copier:!celery:start -->
-## Scheduled jobs
-
-_In the projects generated with `background_jobs: cron`, this section takes the place of [Background jobs](#background-jobs)._ <!-- copier:template -->
-
-`purge` deletes the expired refresh tokens, single-use tokens and rate limit counters: schedule it once a day. The `remote` image has no `just`, so run the module directly:
+The repository is a [Copier](https://copier.readthedocs.io/) template: it asks a few questions and writes a project with your name, your author and the modules you chose, ready to commit. Requirements: [uv](https://docs.astral.sh/uv/getting-started/installation/) and git.
 
 ```bash
-docker compose run --rm backend python -m app.cli.main purge
+uvx copier copy --trust gh:diegoddie/fastapi-docker-boilerplate my-api
 ```
 
-With cron, on the host that runs Compose:
+Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the latest release, `v1.0.0`, which is not a Copier template.
 
-```
-0 3 * * * cd /srv/my-api && docker compose run --rm backend python -m app.cli.main purge
-```
+`--trust` lets Copier run `.copier/prune.py`, which removes the code of the modules you left out, writes your name and author, and re-locks the dependencies with uv. How it works: [ADR 0013](docs/adr/0013-the-template-prunes-a-working-app.md).
 
-On Kubernetes, as a CronJob with the backend image and its environment:
+| Question | Used for |
+|---|---|
+| `project_name`, `project_slug` | the title, and the names of the package, the Docker image and the database (the slug derives from the name) |
+| `project_description`, `author_name`, `author_email`, `copyright_year` | `pyproject.toml`, the README, the license |
 
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: purge
-spec:
-  schedule: "0 3 * * *"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          restartPolicy: OnFailure
-          containers:
-            - name: purge
-              image: registry.example.com/my-api:1.0.0
-              args: ["python", "-m", "app.cli.main", "purge"]
-              envFrom:
-                - secretRef:
-                    name: my-api
+Then come the options, below.
+
+<!-- copier:template:end -->
+## Updates and options
+
+The answers are saved in `.copier-answers.yml`: commit it, and bring in the template's improvements later with:
+
+```bash
+uvx copier update --trust
 ```
 
-<!-- copier:!celery:end -->
+Copier merges the changes with yours; review them with `git diff` (and any `.rej` file) before committing. The same command turns a module on or off, with `--data <option>=<value>`:
+
+| Option | Default | Module |
+|---|---|---|
+| `background_jobs` | `cron` | `cron`: `purge` is a command for your scheduler; `celery`: a Celery worker and beat on Redis |
+| `sentry` | `true` | error reporting with Sentry in the `remote` image |
+| `payments` | `none` | `polar`: subscriptions with Polar |
+| `posthog` | `false` | product analytics and feature flags with PostHog |
+| `ai` | `false` | AI features with Claude, traced in Langfuse |
+
+A module with tables keeps its migrations in a branch of its own ([ADR 0014](docs/adr/0014-migrations-in-branches.md)): before turning payments off, drop its tables with `just migrate-backward payments@base`.
+
+The template's CI checks these promises on every change: it generates six projects, whose options meet every value of every other option, and runs each project's own CI; it updates a project generated from the previous version, with changes of its own, and runs its CI again. Every Monday it generates all 32 combinations. <!-- copier:template -->
+
 ## Development
 
 ### Inside Docker
@@ -380,176 +228,18 @@ New features live in their own **domain package**; `app/todos/` is the one to co
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md): layers, request lifecycle, authentication and authorization flows, data, errors, testing, runtime
-- [Architecture decision records](docs/adr/README.md): why the main choices were made, and what was discarded
-- [CLAUDE.md](CLAUDE.md): the conventions in a form Claude Code follows; the [`new-domain-app`](.claude/skills/new-domain-app/SKILL.md) skill adds a domain step by step (ask Claude Code to "add an invoices domain")
-
-## Design decisions
-
-- **The database is the source of truth for integrity.** Uniqueness and foreign keys are database constraints. Services simply commit, and a single exception handler turns violations into `409 Conflict` or `422 Unprocessable Content`.
-- **Errors are meant for machines too.** Every error response looks like `{"detail": {"message": "...", "errorCode": "NOT_FOUND"}}`, so clients can branch on a stable code instead of parsing messages. Validation errors add an `errors` list (`field`, `message`, `type`) and never echo the submitted values, which may contain passwords or personal data.
-- **One app factory.** `create_app()` builds the application for production and for the tests alike, so what is tested is what runs.
-- **Refresh tokens live in the database.** Access tokens are short-lived JWTs (15 minutes) carrying only the user id. Refresh tokens are random strings stored as SHA-256 hashes: every refresh revokes the token and issues a new one in the same family, presenting a revoked token ends the whole family (stolen token detection), and logout really ends the session. A token rotated less than 30 seconds earlier still works while its session is open, so two tabs refreshing together do not log the user out.
-- **Every request reads the user.** Disabling a user takes effect immediately, even while their access token is still valid; permissions are computed from the groups on every request, so changing a group needs no new login.
-- **Access rules live in one place.** Each service has a `get_where_clause(user)` used by every query, so a list, a detail, an update and a delete can never disagree on what a user may reach.
-- **Soft delete.** Deleting sets `datetime_disabled`: the row is kept (audit, recovery) but hidden from the API.
-- **Logs are data.** Every line is an event with fields, rendered as JSON in production, whatever library wrote it. A request id ties together the lines of a request and its response, and the user id says who made it; the request line never contains bodies, query strings or IP addresses.
-- **Exports are safe to open, and of any size.** CSV cells starting with `=`, `+`, `-`, `@` are prefixed with a quote, so a spreadsheet never runs them as formulas. Rows are read with a server-side cursor, 1,000 at a time, while the file is sent: memory does not grow with the export.
-- **Enums stored by value.** Postgres enums hold the same values as the API (`in_progress`), not the Python member names.
-- **Security primitives behind interfaces.** Services depend on the `PasswordHasher`, `AccessTokenCodec` and `IdentityProvider` protocols, not on argon2, JWT or Google, so implementations can be swapped and faked in tests. Adding another sign-in provider means adding a class.
-- **External identities in their own table, linked explicitly.** A user can be linked to several external accounts (provider + account id) and still have a password. An external account is never linked by email: linking needs a signed-in user with a verified address and their password, so neither whoever registered an address first nor a former owner of the address can get into the account.
-- **Whoever proves the address wins.** Registration does not prove that the address is yours, so an unverified account never blocks its real owner: a password reset (a link sent to the address) or a Google sign-in authoritative for it hands the account over, and every way in set up before is removed.
-- **Emails never slow a request down.** Services depend on an `EmailSender`; requests get one that sends after the response, so the client never waits for the mail server, and a failed delivery is logged without the recipient or the text.
-- **Rate limits that hold with many workers.** Login attempts are limited per account and IP (so a stranger cannot lock you out), all authentication requests per IP. The counters live in PostgreSQL with an atomic upsert, so two gunicorn workers or ten containers share them, and the table stores hashes, not emails or addresses.
-- **Slow on purpose, but not blocking.** Argon2 costs ~150 ms of CPU and 64 MiB of memory per password, by design. The password hasher is async and runs it in a worker thread, so logins do not stall the other requests, and at most `FASTAPI_PASSWORD_HASH_CONCURRENCY` hashes run at once per worker: a burst of logins waits in line instead of exhausting the memory (30 hashes at once: ~1.9 GiB without the cap, ~190 MiB with 2).
-- **Settings vs constants.** What can change between environments (secrets, URLs of external services, timeouts) lives in the settings; facts of the code (permission names, Google's issuers, column lengths) live in each package's `constants.py`.
-- **OAuth 2.0 where it matters.** The token endpoints use the snake_case fields of RFC 6749 (`access_token`, `refresh_token`…), which Swagger UI and OAuth client libraries expect; the rest of the API is camelCase.
-- **Tests guard the API surface.** A test reads the OpenAPI schema and fails if any route outside an explicit list of public paths lacks authentication.
-- **Timestamps are always UTC.** `UTCDateTime` stores `timestamptz` values and refuses naive datetimes instead of letting the server timezone silently decide.
-- **One image, many environments.** The `remote`, `test` and `local` targets share the same base layer, and the uv dependency groups (`remote`, `test`, `local`) mirror them. Migrations run in the entrypoint, so every environment starts from an up-to-date schema; a Postgres advisory lock keeps replicas that start together from migrating in parallel.
-- **The CI runs what you run.** GitHub Actions builds the `test` target and runs `docker compose run backend`, the same command you can run locally.
-- **Tooling cannot drift.** Pre-commit hooks invoke ruff, mypy and bandit through `uv run`, so they always use the versions locked in `uv.lock`.
-
-## Configuration
-
-Settings are read from environment variables prefixed with `FASTAPI_` (see `app/core/config.py`).
-
-| Variable | Default | Description |
-|---|---|---|
-| `FASTAPI_DATABASE_URL` | — (required) | PostgreSQL URL, e.g. `postgresql+psycopg://user:password@host:5432/db` |
-| `FASTAPI_ENVIRONMENT` | `remote` | `local` or `remote` |
-| `FASTAPI_DEBUG` | `false` | Debug mode (tracebacks in error responses) and SQL echo |
-| `FASTAPI_VERSION` | from `pyproject.toml` | Version shown in the OpenAPI schema |
-| `FASTAPI_CORS_ALLOWED_ORIGINS` | `[]` | JSON list of allowed origins, e.g. `["http://localhost:3000"]` |
-| `FASTAPI_API_ROOT` | `/api` | Prefix of every route |
-| `FASTAPI_DOCS_ENABLED` | `true` only when `FASTAPI_ENVIRONMENT=local` | Serve the Swagger UI and the OpenAPI schema |
-| `FASTAPI_DOCS_PATH` | `docs` | Swagger UI path |
-| `FASTAPI_OPENAPI_PATH` | `openapi.json` | OpenAPI schema path |
-| `FASTAPI_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
-| `FASTAPI_LOG_FORMAT` | `console` when `FASTAPI_ENVIRONMENT=local`, `json` otherwise | How log lines are rendered |
-| `FASTAPI_DATABASE_POOL_SIZE` | `5` | Connection pool size |
-| `FASTAPI_DATABASE_MAX_OVERFLOW` | `10` | Extra connections allowed above the pool size |
-| `FASTAPI_SECRET_KEY` | — (required, at least 32 characters) | Signs the access tokens; generate one with `openssl rand -hex 32` |
-| `FASTAPI_JWT_ALGORITHM` | `HS256` | `HS256`, `HS384` or `HS512` |
-| `FASTAPI_ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access token lifetime |
-| `FASTAPI_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
-| `FASTAPI_REFRESH_TOKEN_REUSE_GRACE_SECONDS` | `30` | How long a rotated refresh token still works (concurrent refreshes); `0` disables it |
-| `FASTAPI_PASSWORD_HASH_CONCURRENCY` | `2` | Password hashes running at once per worker (64 MiB each); the others wait |
-| `FASTAPI_FRONTEND_URL` | `http://localhost:3000` | Base URL of the links in the emails (`/verify-email`, `/reset-password`) |
-| `FASTAPI_EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS` | `24` | Lifetime of a verification link |
-| `FASTAPI_PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` | `30` | Lifetime of a password reset link |
-| `FASTAPI_RATE_LIMIT_EMAILS_PER_HOUR` | `5` | Emails sent to the same address, whatever the IP |
-| `FASTAPI_EMAIL_BACKEND` | `console` when `FASTAPI_ENVIRONMENT=local`, `smtp` otherwise | `console` writes the emails, links included, to the logs: never use it where logs are kept |
-| `FASTAPI_EMAIL_FROM` | `no-reply@example.com` | Sender of the emails |
-| `FASTAPI_SMTP_HOST` / `FASTAPI_SMTP_PORT` | `localhost` / `587` | SMTP server |
-| `FASTAPI_SMTP_SECURITY` | `starttls` | `starttls`, `ssl` (port 465) or `none` |
-| `FASTAPI_SMTP_USERNAME` / `FASTAPI_SMTP_PASSWORD` | — | SMTP credentials |
-| `FASTAPI_SMTP_TIMEOUT_SECONDS` | `10` | SMTP connection timeout |
-| `FASTAPI_RATE_LIMIT_PASSWORD_ATTEMPTS_PER_MINUTE` | `5` | Login and linking attempts per account and IP |
-| `FASTAPI_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE` | `30` | Authentication requests per IP (registration, login, Google) |
-| `FASTAPI_RATE_LIMIT_REGISTRATIONS_PER_HOUR` | `10` | Registrations per IP |
-| `FASTAPI_GOOGLE_CLIENT_ID` | — | OAuth client id that enables Sign in with Google |
-| `FASTAPI_GOOGLE_CERTS_URL` | Google's public keys URL | Where Google's signing keys are fetched from |
-| `SENTRY_DSN` | — | Enables Sentry in the `remote` image <!-- copier:sentry --> |
-| `SENTRY_ENVIRONMENT` | — | Environment name shown in Sentry (e.g. `production`) <!-- copier:sentry --> |
-| `FASTAPI_SENTRY_TRACES_SAMPLE_RATE` | `0` | Share of requests traced for Sentry performance monitoring (`0` to `1`) <!-- copier:sentry --> |
-| `FASTAPI_POLAR_ACCESS_TOKEN` | — | Polar organization access token (scopes `checkouts:write`, `customer_sessions:write`) <!-- copier:payments --> |
-| `FASTAPI_POLAR_WEBHOOK_SECRET` | — | Secret of the Polar webhook endpoint <!-- copier:payments --> |
-| `FASTAPI_POLAR_ENVIRONMENT` | `sandbox` | `sandbox` or `production` <!-- copier:payments --> |
-| `FASTAPI_POLAR_PRODUCT_IDS` | `[]` | JSON list of the ids of the products users may buy <!-- copier:payments --> |
-| `FASTAPI_POLAR_TIMEOUT_SECONDS` | `10` | Timeout of the calls to Polar <!-- copier:payments --> |
-| `FASTAPI_RATE_LIMIT_PAYMENTS_REQUESTS_PER_HOUR` | `20` | Checkouts and portal sessions per user <!-- copier:payments --> |
-| `FASTAPI_POSTHOG_API_KEY` | — | PostHog project API key (`phc_...`): enables the events and the flags <!-- copier:posthog --> |
-| `FASTAPI_POSTHOG_HOST` | `https://eu.i.posthog.com` | PostHog region of the project (`https://us.i.posthog.com` for the US) <!-- copier:posthog --> |
-| `FASTAPI_POSTHOG_FEATURE_FLAGS_TIMEOUT_SECONDS` | `1` | How long a route behind a flag waits for PostHog before treating the flag as off <!-- copier:posthog --> |
-| `FASTAPI_ANTHROPIC_API_KEY` | — | Enables the AI features (use a workspace with a spend limit) <!-- copier:ai --> |
-| `FASTAPI_AI_MODEL` | `claude-opus-5-5` | Claude model of the AI features <!-- copier:ai --> |
-| `FASTAPI_AI_TIMEOUT_SECONDS` / `FASTAPI_AI_MAX_RETRIES` | `60` / `1` | Timeout of a call to the model, and retries on timeouts, rate limits and overloads <!-- copier:ai --> |
-| `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR` | `20` | AI requests per user <!-- copier:ai --> |
-| `FASTAPI_LANGFUSE_PUBLIC_KEY` / `FASTAPI_LANGFUSE_SECRET_KEY` | — | Enable the Langfuse tracing of the AI calls <!-- copier:ai --> |
-| `FASTAPI_LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | Langfuse server (e.g. `https://us.cloud.langfuse.com`, or your own) <!-- copier:ai --> |
-| `FASTAPI_LANGFUSE_CAPTURE_CONTENT` | `false` | Also send the prompts and the answers to Langfuse; they can hold personal data <!-- copier:ai --> |
-| `FASTAPI_CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL of the Celery broker (in Compose, the `redis` service) <!-- copier:celery --> |
-| `FASTAPI_CELERY_WORKER_CONCURRENCY` | `2` | Processes of a Celery worker (~75 MiB each) <!-- copier:celery --> |
-| `WEB_CONCURRENCY` | `2` | Number of gunicorn workers |
-| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Proxies trusted to set `X-Forwarded-For` (read by uvicorn and gunicorn). Behind a load balancer, set its addresses (or `*` if only the proxy can reach the app); otherwise every client has the proxy's address and they share the rate limits |
-
-Docker Compose also reads `BACKEND_BUILD_TARGET` (`remote` by default), `BACKEND_PORT` and `POSTGRES_PORT`.
-It also reads `REDIS_PORT`, and `CELERY_BROKER_URL` to point the containers to another Redis. <!-- copier:celery -->
-
-> **Database URL in Docker vs on your machine.** `FASTAPI_DATABASE_URL` in `.env` points to `localhost`, for the commands you run on your machine. Inside Docker Compose the backend reaches the database through the `postgres` service instead: compose sets the container's `FASTAPI_DATABASE_URL` from `DATABASE_URL`, which defaults to the compose database. Set `DATABASE_URL` only to point the container to another database.
-
-## Deploying to production
-
-The `remote` image runs gunicorn with uvicorn workers as a non-root user and applies the migrations when it starts. Before going live:
-
-- [ ] **Secrets**: a random `FASTAPI_SECRET_KEY` (`openssl rand -hex 32`), never the one in `.env_template`; `FASTAPI_DATABASE_URL` pointing to the production database.
-- [ ] **Environment**: `FASTAPI_ENVIRONMENT=remote` (the default): API docs off, JSON logs.
-- [ ] **CORS**: `FASTAPI_CORS_ALLOWED_ORIGINS` lists the frontend origins.
-- [ ] **Behind a load balancer or reverse proxy**: set `FORWARDED_ALLOW_IPS` to its addresses (or `*` if only the proxy can reach the app). If it is missing, nothing fails: every user simply gets the proxy's address and the whole site shares the per-IP rate limits (30 logins per minute, 10 registrations per hour).
-- [ ] **Memory**: each worker takes ~80 MiB, plus 64 MiB for each password hash running (`FASTAPI_PASSWORD_HASH_CONCURRENCY`). With the defaults (2 workers, 2 hashes each) the container idles at ~250 MiB and peaks at ~500 MiB during a burst of logins: give it at least 768 MiB, and recompute when you change `WEB_CONCURRENCY`.
-- [ ] **Database connections**: each worker opens up to `FASTAPI_DATABASE_POOL_SIZE` + `FASTAPI_DATABASE_MAX_OVERFLOW` connections (15), and a CSV download holds one for its whole duration. Containers × workers × 15 must stay below the database's `max_connections` (100 by default on PostgreSQL), or put a pooler (PgBouncer) in between.
-- [ ] **Scheduled job**: `python -m app.cli.main purge` once a day (see [Scheduled jobs](#scheduled-jobs)). <!-- copier:!celery -->
-- [ ] **Payments** (if used): `FASTAPI_POLAR_ENVIRONMENT=production` with a production token and product ids, and a webhook on the production URL for the `subscription.*` events. The pages `/billing` and `/billing/success` of the frontend receive the customers back from Polar. <!-- copier:payments -->
-- [ ] **PostHog** (if used): `FASTAPI_POSTHOG_API_KEY` and the `FASTAPI_POSTHOG_HOST` of the project's region; list the events in your privacy policy. <!-- copier:posthog -->
-- [ ] **AI** (if used): an Anthropic API key from a workspace with a spend limit, and a look at `FASTAPI_RATE_LIMIT_AI_REQUESTS_PER_HOUR`. LangChain and the Anthropic SDK add ~90 MiB to each worker and a few seconds to its start: size the memory for it. Turn on `FASTAPI_LANGFUSE_CAPTURE_CONTENT` only if the users' data may leave for Langfuse. <!-- copier:ai -->
-- [ ] **Background jobs**: from the backend image, run the workers (`celery --app app.jobs.worker worker`) and **exactly one** beat (`celery --app app.jobs.worker beat`: two would send every scheduled task twice), with `FASTAPI_CELERY_BROKER_URL` pointing to Redis. On stop, a worker finishes its running tasks: give it a grace period longer than the longest task. <!-- copier:celery -->
-- [ ] **Monitoring**: probes on `/api/health/` (liveness) and `/api/ready/` (readiness).
-- [ ] **Sentry**: `SENTRY_DSN` and `SENTRY_ENVIRONMENT`. <!-- copier:sentry -->
-- [ ] **Emails**: `FASTAPI_SMTP_*` and `FASTAPI_EMAIL_FROM` for your provider (a domain with SPF and DKIM, or the emails land in spam), and `FASTAPI_FRONTEND_URL` pointing to the frontend that serves `/verify-email` and `/reset-password`. A failed delivery shows up in the logs as `email_not_sent`.
-- [ ] **Google sign-in** (if used): the production origins in the OAuth client, and `FASTAPI_GOOGLE_CLIENT_ID`.
-
-<!-- copier:template:start -->
-## Generate a project
-
-The repository is a [Copier](https://copier.readthedocs.io/) template: Copier asks a few questions and writes a new project with your name, description and author, ready to commit. Requirements: [uv](https://docs.astral.sh/uv/getting-started/installation/) and git.
-
-```bash
-uvx copier copy --trust gh:diegoddie/fastapi-docker-boilerplate my-api
-```
-
-Until `v2.0.0` is released, add `--vcs-ref main`: Copier otherwise picks the latest release, `v1.0.0`, which is not a Copier template.
-
-| Question | Example | Used for |
-|---|---|---|
-| `project_name` | Acme Billing API | README and API docs title |
-| `project_slug` | acme-billing-api (derived) | package, Docker image and database names |
-| `project_description` | Invoices and payments for Acme. | `pyproject.toml`, README, API docs |
-| `author_name`, `author_email` | Jane Doe, jane@example.com | `pyproject.toml`, license |
-| `copyright_year` | 2026 (this year) | license |
-| `background_jobs` | cron | `cron`: `purge` is a command for your scheduler; `celery`: a Celery worker and beat with Redis |
-| `sentry` | yes | error reporting with Sentry in the `remote` image |
-| `payments` | none | `polar`: subscriptions with Polar (checkout, portal, webhooks, `pro` group) |
-| `posthog` | no | product analytics and feature flags with PostHog |
-| `ai` | no | AI features with Claude (LangChain, Langfuse tracing) and the subtask suggestion route |
-
-`--trust` lets Copier run `.copier/prune.py`, which writes the answers into the project and re-locks the dependencies with uv. The answers are saved in `.copier-answers.yml`: commit it, and later bring in the template's improvements with:
-
-```bash
-uvx copier update --trust
-```
-
-Copier merges the changes with yours; review them with `git diff` (and any `.rej` file) before committing. How the template works: [ADR 0013](docs/adr/0013-the-template-prunes-a-working-app.md).
-
-The template's CI checks what it promises. On every change, it generates six projects whose options meet every value of every other option, and runs each project's own CI on it (tests at 100% coverage, a Celery worker, migrations down and up); it also generates a project from the previous version, changes it like a team would, updates it to the new version and runs its CI again. Every Monday it generates all 32 combinations of the options.
-
-## Roadmap
-
-- [x] Foundations: tooling, core infrastructure, Docker, CI
-- [x] Users and JWT authentication: registration, rotating refresh tokens, groups and permissions
-- [x] Database-backed tests: transaction rollback per test, factories, personas, snapshots
-- [x] Sign in with Google
-- [x] Example `todos` domain: permissions, ownership, filtering, search, pagination, soft delete, CSV export
-- [x] Architecture documentation, ADRs, Claude Code conventions, CI vulnerability scan and Docker cache
-- [x] Structured JSON logs with a request id, `seed` and `shell` management commands
-- [x] Hardening from external reviews: password hashing off the event loop, rate limits, concurrent refreshes, explicit account linking, streamed exports
-- [x] Email verification and password reset
-- [x] Copier template, with Sentry and Celery as options, migrations in branches
-- [x] AI features with Claude as an option: LangChain, Langfuse tracing
-- [x] Product analytics and feature flags with PostHog as an option
-- [x] Subscriptions with Polar as an option
-- [ ] The `v2.0.0` release
-<!-- copier:template:end -->
+- [Using the API](docs/api.md): the routes, Google sign-in, email verification and password reset, groups and permissions, list filters
+- [Configuration](docs/configuration.md): every environment variable
+- [Deploying to production](docs/deployment.md): the checklist
+- [Subscriptions with Polar](docs/payments.md) <!-- copier:payments -->
+- [Product analytics and feature flags](docs/analytics.md) <!-- copier:posthog -->
+- [AI features](docs/ai.md) <!-- copier:ai -->
+- [Background jobs with Celery](docs/background-jobs.md) <!-- copier:celery -->
+- [Scheduled jobs](docs/scheduled-jobs.md) <!-- copier:!celery -->
+- [Architecture](docs/ARCHITECTURE.md): layers, request lifecycle, authentication, data, errors, testing, runtime
+- [Design decisions](docs/design-decisions.md), and the [decision records](docs/adr/README.md) behind them
+- [CLAUDE.md](CLAUDE.md): the conventions in a form Claude Code follows; the [`new-domain-app`](.claude/skills/new-domain-app/SKILL.md) skill adds a domain step by step
+- [Changelog](CHANGELOG.md) <!-- copier:template -->
 
 ## License
 

@@ -84,4 +84,4 @@ Check that `just migrate-backward main@-1` and `just migrate-forward` both work.
 ## 5. Finish
 
 `just fix`, then `just test` (100% coverage, `alembic check` included). Update
-the README API overview and the groups table. Open a PR from `feat/<domain>`.
+the routes and the groups tables in `docs/api.md`. Open a PR from `feat/<domain>`.

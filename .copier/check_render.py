@@ -6,10 +6,11 @@ Usage: check_render.py <project directory>
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
-from prune import BLOCK, LINE, MODULES, enabled_modules, text_files
+from prune import BLOCK, LINE, MODULES, OPTIONS, enabled_modules, text_files
 
 # The template's identity, which no generated project may keep (outside the
 # ADRs, which record the history of decisions as written).
@@ -31,10 +32,13 @@ MODULE_KEYWORDS = {
     "sentry": ("sentry",),
 }
 ANSWERS_FILE = ".copier-answers.yml"
+# Why: the table of the options lists every module, those a project can turn on.
+OPTION_ROW = re.compile(r"^\| `(?P<option>[a-z_]+)` \|")
 TEMPLATE_ONLY_PATHS = (
     ".copier",
     "copier.yml",
     ".github/workflows/template.yml",
+    "CHANGELOG.md",
     "docs/adr/0013-the-template-prunes-a-working-app.md",
 )
 
@@ -76,6 +80,9 @@ def leftovers(root: Path) -> list[str]:
                 for identity in TEMPLATE_IDENTITY
                 if identity in line
             )
+            option_row = OPTION_ROW.match(line)
+            if option_row and option_row["option"] in OPTIONS:
+                continue
             problems.extend(
                 f"{relative}:{number}: {keyword!r} of a module turned off"
                 for keyword in keywords

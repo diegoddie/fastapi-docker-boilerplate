@@ -47,6 +47,14 @@ MODULE_ANSWERS: dict[str, Callable[[Mapping[str, object]], bool]] = {
     "template": lambda answers: False,
 }
 MODULES = frozenset(MODULE_ANSWERS)
+# The options of copier.yml, with their values (the identity questions apart).
+OPTIONS: dict[str, tuple[object, ...]] = {
+    "ai": (False, True),
+    "background_jobs": ("cron", "celery"),
+    "payments": ("none", "polar"),
+    "posthog": (False, True),
+    "sentry": (False, True),
+}
 
 SKIPPED_DIRS = frozenset(
     {
